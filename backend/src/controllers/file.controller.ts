@@ -39,3 +39,44 @@ export const uploadPdfController = async (
     });
   }
 };
+
+export const uploadStatusController = async (
+  request: Request,
+  response: Response,
+) => {
+  try {
+    const { jobId } = request.params;
+
+    if (!jobId || typeof jobId !== "string") {
+      return response.status(400).json({
+        message: "Job ID is required",
+      });
+    }
+
+    const job = await pdfQueue.getJob(jobId);
+
+    if (!job) {
+      return response.status(404).json({
+        message: "Job not found",
+      });
+    }
+
+    const state = await job.getState();
+
+    return response.status(200).json({
+      jobId: job.id,
+      state,
+      progress: job.progress,
+      result: job.returnvalue,
+      failedReason: job.failedReason,
+    });
+  } catch (error: any) {
+    console.error("Error", error);
+
+    return response.status(500).json({
+      success: "fail",
+      message: "Failed to fetch job status.",
+      error: error.message,
+    });
+  }
+};

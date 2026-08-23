@@ -4,7 +4,7 @@ import IORedis from "ioredis";
 const connection = new IORedis(
   process.env.REDIS_URL || "redis://:myredissecret@redis:6379",
   {
-    maxRetriesPerRequest: null,
+    maxRetriesPerRequest: 3,
   },
 );
 
