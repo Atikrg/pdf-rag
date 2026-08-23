@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.git
+uploads
+.claude
+test.ts
+*.log
