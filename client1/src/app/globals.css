@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Colors ── */
+  --color-rose:         rgb(203, 41, 87);
+  --color-rose-hover:   rgb(225, 50, 97);
+  --color-rose-dim:     rgba(203, 41, 87, 0.15);
+  --color-rose-border:  rgba(203, 41, 87, 0.35);
+  --color-silver:       #dddddd;
+  --color-offwhite:     #eeeeee;
+  --color-glass-bg:     rgba(238, 238, 238, 0.04);
+  --color-glass-border: rgba(238, 238, 238, 0.1);
+  --color-muted:        rgba(238, 238, 238, 0.4);
+
+  /* ── Fonts ── */
+  --font-sora:  "Sora", sans-serif;
+  --font-inter: "Inter", sans-serif;
+
+  /* ── Animations ── */
+  --animate-blink:  blink  2s   ease-in-out infinite;
+  --animate-float1: float1 3.5s ease-in-out infinite;
+  --animate-float2: float2 4s   ease-in-out infinite;
+}
+
+/* ── Keyframes ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes float1 {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-7px); }
+}
+
+@keyframes float2 {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(6px); }
+}
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #000;
+    color: #eeeeee;
+    font-family: "Inter", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .bg-rose-radial {
+    background: radial-gradient(circle, rgba(203, 41, 87, 0.07) 0%, transparent 65%);
+  }
+
+  .bg-cta-glow {
+    background: radial-gradient(ellipse at center, rgba(203, 41, 87, 0.09), transparent 60%);
+  }
+
+  .border-top-rose {
+    background: linear-gradient(90deg, transparent, rgb(203, 41, 87), transparent);
+  }
+
+  .connector-line {
+    background: linear-gradient(90deg, rgb(203, 41, 87), rgba(203, 41, 87, 0.3));
+  }
+}
