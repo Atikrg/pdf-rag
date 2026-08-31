@@ -1,0 +1,5 @@
+# Qdrant runtime vector-database data (regenerated on startup)
+qdrant_storage/
+
+# Scratch / standalone HTML export
+pdf_chat_full_page.html

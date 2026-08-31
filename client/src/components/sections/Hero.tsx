@@ -1,4 +1,5 @@
 // SERVER COMPONENT
+import Link from "next/link";
 import PdfCardStack from "@/components/ui/PdfCardStack";
 
 const STATS = [
@@ -38,12 +39,18 @@ export default function Hero() {
 
         {/* Buttons */}
         <div className="flex flex-wrap gap-3.5 items-center">
-          <button className="bg-rose hover:bg-rose-hover text-white text-[0.9rem] font-semibold px-7 py-3.5 rounded-lg transition-all duration-200 hover:-translate-y-px tracking-[-0.01em]">
-            Upload your PDF
-          </button>
-          <button className="border border-glass-border text-silver text-[0.9rem] px-6 py-3.5 rounded-lg transition-all duration-200 hover:border-silver hover:text-offwhite hover:bg-white/[0.04]">
-            Watch demo
-          </button>
+          <Link
+              href="/chat"
+              className="bg-rose hover:bg-rose-hover text-white text-[0.9rem] font-semibold px-7 py-3.5 rounded-lg transition-all duration-200 hover:-translate-y-px tracking-[-0.01em]"
+            >
+              Upload your PDF
+            </Link>
+            <Link
+              href="#how-it-works"
+              className="border border-glass-border text-silver text-[0.9rem] px-6 py-3.5 rounded-lg transition-all duration-200 hover:border-silver hover:text-offwhite hover:bg-white/[0.04]"
+            >
+              Watch demo
+            </Link>
         </div>
 
         {/* Stats */}

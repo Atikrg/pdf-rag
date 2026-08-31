@@ -14,7 +14,6 @@ export const connectRedis = async () => {
 
     console.log("Redis connected");
   }
-  
 };
 
 export const disconnectRedis = async () => {

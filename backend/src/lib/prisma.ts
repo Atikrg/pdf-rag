@@ -1,11 +1,17 @@
-
-import "dotenv/config";
+import { PrismaClient } from "../generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../../generated/prisma/client";
 
-const connectionString = `${process.env.DATABASE_URL}`;
+declare global {
+  // eslint-disable-next-line no-var
+  var __prisma: PrismaClient | undefined;
+}
 
-const adapter = new PrismaPg({ connectionString });
-const prisma = new PrismaClient({ adapter });
+function createPrisma(): PrismaClient {
+  const connectionString =
+    process.env.DATABASE_URL ??
+    "postgresql://postgres:postgres@localhost:5433/pdfrag?schema=public";
+  const adapter = new PrismaPg(connectionString);
+  return new PrismaClient({ adapter });
+}
 
-export { prisma };
+export const prisma = (globalThis.__prisma ??= createPrisma());

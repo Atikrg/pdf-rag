@@ -185,6 +185,27 @@ services:
     volumes:
       - langfuse_postgres_data:/var/lib/postgresql/data
 
+  # Application database for pdf-rag (users, documents, chat sessions, messages)
+  app-postgres:
+    image: docker.io/postgres:17
+    container_name: app-postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    environment:
+      POSTGRES_USER: ${APP_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-postgres} # CHANGEME
+      POSTGRES_DB: ${APP_DB_NAME:-pdfrag}
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - 127.0.0.1:5433:5432
+    volumes:
+      - app_postgres_data:/var/lib/postgresql/data
+
   backend:
     build: ./backend
     container_name: backend
@@ -192,30 +213,74 @@ services:
     depends_on:
       qdrant:
         condition: service_started
-      postgres:
+      app-postgres:
         condition: service_healthy
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/rag_pdf?schema=public
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
+      DATABASE_URL: postgresql://${APP_DB_USER:-postgres}:${APP_DB_PASSWORD:-postgres}@app-postgres:5432/${APP_DB_NAME:-pdfrag}?schema=public
       SERVER_PORT: 5000
+      NODE_ENV: development
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
+      REDIS_URL: redis://:${REDIS_AUTH:-myredissecret}@redis:6379
     ports:
       - "5000:5000"
-    command: sh -c "bunx prisma db push && bun run dev"
+    command: sh -c "bun run dev"
     volumes:
-      - ./backend/uploads:/app/uploads
       - ./backend/src:/app/src
 
+  worker:
+    build: ./backend
+    container_name: worker
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    env_file:
+      - ./backend/.env
+    environment:
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      DATABASE_URL: postgresql://${APP_DB_USER:-postgres}:${APP_DB_PASSWORD:-postgres}@app-postgres:5432/${APP_DB_NAME:-pdfrag}?schema=public
+      NODE_ENV: development
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
+      REDIS_URL: redis://:${REDIS_AUTH:-myredissecret}@redis:6379
+    command: sh -c "bun run worker"
+    volumes:
+      - ./backend/src:/app/src
+
+
   client:
-    build: ./client
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+      args:
+        BACKEND_URL: http://backend:5000
     container_name: client
     restart: unless-stopped
     depends_on:
       - backend
+    environment:
+      BACKEND_URL: http://backend:5000
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      WATCHPACK_POLLING: "true"
     ports:
       - "3001:3000"
+    volumes:
+      - ./client:/app
+      - client_node_modules:/app/node_modules
+      - client_next:/app/.next
 
 volumes:
   langfuse_postgres_data:
@@ -228,3 +293,7 @@ volumes:
     driver: local
   langfuse_redis_data:
     driver: local
+  app_postgres_data:
+    driver: local
+  client_node_modules:
+  client_next:

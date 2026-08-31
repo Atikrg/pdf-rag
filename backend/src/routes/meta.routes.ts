@@ -1,8 +1,17 @@
-import Router from "express";
-import { healthCheck } from "../controllers/meta.controller";
+import { Router } from "express";
+import type { IRoutes } from "./IRoutes";
+import type { MetaController } from "../controllers/meta.controller";
 
-const router = Router();
+export class MetaRoutes implements IRoutes {
+  public readonly basePath = "/api";
 
-router.get("/healthy", healthCheck);
+  constructor(private readonly metaController: MetaController) {}
 
-export default router;
+  public register(): Router {
+    const router = Router();
+
+    router.get("/healthy", this.metaController.healthCheck);
+
+    return router;
+  }
+}

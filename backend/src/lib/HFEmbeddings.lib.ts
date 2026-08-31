@@ -1,15 +1,25 @@
+import { pipeline } from "@huggingface/transformers";
 import { Embeddings } from "@langchain/core/embeddings";
-import { getEmbeddingModel } from "./embeddings";
+
+let extractor: any = null;
+
+async function getEmbeddingModel() {
+  if (!extractor) {
+    extractor = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+  }
+
+  return extractor;
+}
 
 export class HFEmbeddings extends Embeddings {
-
   constructor() {
     super({});
   }
-  async embedQuery(text: string): Promise<number[]> {
-    const extractor = await getEmbeddingModel();
 
-    const output = await extractor(text, {
+  async embedQuery(text: string): Promise<number[]> {
+    const model = await getEmbeddingModel();
+
+    const output = await model(text, {
       pooling: "mean",
       normalize: true,
     });

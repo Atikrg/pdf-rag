@@ -4,5 +4,4 @@ dist
 .git
 uploads
 .claude
-test.ts
 *.log

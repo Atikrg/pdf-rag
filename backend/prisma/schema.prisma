@@ -1,49 +1,79 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
 }
 
+// A signed-in user (synced from Clerk via the `sub` claim, or created with a
+// local email/password when Clerk is not configured).
 model User {
-  id        String   @id @default(uuid(7))
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  clerkId      String?  @unique @map("clerk_id")
+  email        String?  @unique
+  passwordHash String?  @map("password_hash")
+  firstName    String?  @map("first_name")
+  lastName     String?  @map("last_name")
+  imageUrl     String?  @map("image_url")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  chats Chat[]
+  documents    Document[]
+  chatSessions ChatSession[]
+
+  @@map("users")
 }
 
+// A PDF uploaded by a user. Each user can have at most MAX_DOCS (5).
+model Document {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  objectName  String   @map("object_name")
+  originalName String  @map("original_name")
+  size        Int
+  mimeType    String   @map("mime_type")
+  totalPages  Int?     @map("total_pages")
+  totalChunks Int?     @map("total_chunks")
+  status      String   @default("processing") // processing | ready | failed
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-model Chat {
-  id        String   @id @default(uuid(7))
-  title     String
-  userId String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages Message[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatSessions ChatSession[]
 
   @@index([userId])
+  @@map("documents")
+}
+
+// One chat "session"/conversation per user. Title is generated from the first message.
+model ChatSession {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  documentId String? @map("document_id")
+  title     String   @default("New chat")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  @@index([userId, updatedAt])
+  @@map("chat_sessions")
 }
 
 model Message {
-  id        String   @id @default(uuid(7))
-  chatId    String
-  role      String
-  content   String
-  createdAt DateTime @default(now())
+  id        String   @id @default(cuid())
+  sessionId String   @map("session_id")
+  role      String // user | ai
+  content   String @db.Text
+  citations Json?
+  createdAt DateTime @default(now()) @map("created_at")
 
-  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  @@index([chatId])
+  @@index([sessionId])
+  @@map("messages")
 }

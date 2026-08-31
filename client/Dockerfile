@@ -9,6 +9,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json next.config.ts next-env.d.ts postcss.config.mjs eslint.config.mjs bun.lock package-lock.json* ./
 COPY src ./src
 COPY public ./public
+ARG BACKEND_URL=http://localhost:5000
+ENV BACKEND_URL=$BACKEND_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

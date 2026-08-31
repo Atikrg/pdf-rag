@@ -1,4 +1,5 @@
 // SERVER COMPONENT
+import Link from "next/link";
 // Only the DropZone inside is a Client Component (drag state needs JS)
 import DropZone from "@/components/ui/DropZone";
 
@@ -21,11 +22,16 @@ export default function CTA() {
         </p>
 
         {/* Client component — needs drag/drop state */}
-        <DropZone />
+        <Link href="/chat">
+          <DropZone />
+        </Link>
 
-        <button className="w-full bg-rose hover:bg-rose-hover text-white font-semibold text-[0.95rem] py-4 rounded-lg transition-all duration-200 hover:-translate-y-px tracking-[-0.01em]">
+        <Link
+          href="/signup"
+          className="block w-full bg-rose hover:bg-rose-hover text-white font-semibold text-[0.95rem] py-4 rounded-lg transition-all duration-200 hover:-translate-y-px tracking-[-0.01em] text-center"
+        >
           ✨ Create free account
-        </button>
+        </Link>
       </div>
     </section>
   );

@@ -6,8 +6,7 @@ import Link from "next/link";
 const NAV_LINKS = [
   { label: "Features", href: "#features" },
   { label: "How it works", href: "#how-it-works" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "Docs", href: "#docs" },
+  { label: "Chat", href: "/chat" },
 ];
 
 export default function Navbar() {
@@ -35,9 +34,20 @@ export default function Navbar() {
       </ul>
 
       {/* CTA */}
-      <button className="hidden md:block bg-rose hover:bg-rose-hover text-white text-sm font-semibold px-5 py-2 rounded-md transition-all duration-200 hover:-translate-y-px">
-        Get started free
-      </button>
+      <div className="hidden md:flex items-center gap-6">
+        <Link
+          href="/login"
+          className="text-muted text-sm hover:text-offwhite transition-colors duration-200"
+        >
+          Log in
+        </Link>
+        <Link
+          href="/signup"
+          className="bg-rose hover:bg-rose-hover text-white text-sm font-semibold px-5 py-2 rounded-md transition-all duration-200 hover:-translate-y-px"
+        >
+          Get started free
+        </Link>
+      </div>
 
       {/* Mobile hamburger */}
       <button
@@ -71,9 +81,20 @@ export default function Navbar() {
               {label}
             </Link>
           ))}
-          <button className="w-full bg-rose text-white text-sm font-semibold py-2.5 rounded-md mt-2">
+          <Link
+            href="/login"
+            className="w-full text-center text-muted hover:text-offwhite text-sm transition-colors"
+            onClick={() => setMenuOpen(false)}
+          >
+            Log in
+          </Link>
+          <Link
+            href="/signup"
+            className="w-full text-center bg-rose text-white text-sm font-semibold py-2.5 rounded-md mt-2"
+            onClick={() => setMenuOpen(false)}
+          >
             Get started free
-          </button>
+          </Link>
         </div>
       )}
     </nav>

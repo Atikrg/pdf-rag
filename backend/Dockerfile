@@ -9,4 +9,4 @@ COPY --from=install /temp/dev/node_modules ./node_modules
 COPY . .
 ENV NODE_ENV=production
 EXPOSE 5000
-CMD ["sh", "-c", "bunx prisma db push && bun run src/index.ts"]
+CMD ["sh", "-c", "bun run src/index.ts"]
