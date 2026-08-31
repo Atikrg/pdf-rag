@@ -1,12 +1,132 @@
 import type { Request, Response } from "express";
+import crypto from "node:crypto";
 import { AppError } from "../error/CustomError";
 import { UserService } from "../services/user.service";
 import { signToken } from "../utils/jwt";
+import type { AppConfig } from "../config/AppConfig";
 import { signupSchema, loginSchema } from "../types/zodSchema";
 
 const userService = new UserService();
 
+const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
+
 export class AuthController {
+  constructor(private readonly config: AppConfig) {}
+
+  public googleAuth = async (request: Request, response: Response) => {
+    const clientId = this.config.googleClientId;
+    const redirectUri = this.config.googleRedirectUri;
+
+    if (!clientId || !redirectUri) {
+      return response
+        .status(400)
+        .json({ message: "Google OAuth is not configured" });
+    }
+
+    const state = crypto.randomBytes(16).toString("hex");
+    response.cookie("google_oauth_state", state, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+    });
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      prompt: "select_account",
+      state,
+      access_type: "online",
+    });
+
+    return response.redirect(`${GOOGLE_AUTH_URL}?${params.toString()}`);
+  };
+
+  public googleCallback = async (request: Request, response: Response) => {
+    const clientId = this.config.googleClientId;
+    const clientSecret = this.config.googleClientSecret;
+    const redirectUri = this.config.googleRedirectUri;
+
+    if (!clientId || !clientSecret || !redirectUri) {
+      return response
+        .status(400)
+        .json({ message: "Google OAuth is not configured" });
+    }
+
+    const code = typeof request.query.code === "string" ? request.query.code : null;
+    const state = typeof request.query.state === "string" ? request.query.state : null;
+    const savedState =
+      typeof request.cookies?.google_oauth_state === "string"
+        ? request.cookies.google_oauth_state
+        : null;
+
+    if (!code) {
+      return response.status(400).json({ message: "Missing authorization code" });
+    }
+    if (!state || !savedState || state !== savedState) {
+      return response.status(400).json({ message: "Invalid OAuth state" });
+    }
+
+    try {
+      const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: "authorization_code",
+        }),
+      });
+
+      const tokens: any = await tokenRes.json();
+      if (!tokens.access_token) {
+        console.error("Google token error:", tokens);
+        return response.status(502).json({ message: "Failed to authenticate with Google" });
+      }
+
+      const userRes = await fetch(GOOGLE_USERINFO_URL, {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+
+      if (!userRes.ok) {
+        return response.status(502).json({ message: "Failed to fetch Google profile" });
+      }
+
+      const profile: any = await userRes.json();
+      const email: string | null = typeof profile.email === "string" ? profile.email : null;
+
+      if (!email) {
+        return response.status(400).json({ message: "Google account has no email" });
+      }
+
+      // Create the user if they don't exist, otherwise log them in.
+      const user = await userService.upsertGoogleUser({
+        email,
+        firstName: typeof profile.given_name === "string" ? profile.given_name : null,
+        lastName: typeof profile.family_name === "string" ? profile.family_name : null,
+        imageUrl: typeof profile.picture === "string" ? profile.picture : null,
+      });
+
+      const token = signToken({ userId: user.id, email: user.email });
+
+      const origin = new URL(redirectUri).origin;
+      const userPayload = encodeURIComponent(
+        JSON.stringify(this.safeUser(user)),
+      );
+      return response.redirect(
+        `${origin}/login?token=${encodeURIComponent(token)}&user=${userPayload}`,
+      );
+    } catch (error) {
+      console.error("Google OAuth callback error:", error);
+      return response.status(500).json({ message: "Google login failed" });
+    }
+  };
+
   public signup = async (request: Request, response: Response) => {
     try {
       const { data, success } = signupSchema.safeParse(request.body);

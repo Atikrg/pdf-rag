@@ -20,6 +20,9 @@ export class AppConfig {
     public readonly clerkJwtPem: string,
     public readonly maxDocsPerUser: number,
     public readonly aiModel: string,
+    public readonly googleClientId: string,
+    public readonly googleClientSecret: string,
+    public readonly googleRedirectUri: string,
   ) {}
 
   public static getInstance(): AppConfig {
@@ -43,6 +46,9 @@ export class AppConfig {
         process.env.CLERK_JWT_PEM ?? "",
         Number(process.env.MAX_DOCS_PER_USER ?? 5),
         process.env.AI_MODEL ?? "openrouter/free",
+        process.env.GOOGLE_CLIENT_ID ?? "",
+        process.env.GOOGLE_CLIENT_SECRET ?? "",
+        process.env.GOOGLE_REDIRECT_URI ?? "",
       );
     }
 

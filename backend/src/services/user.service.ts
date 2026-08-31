@@ -63,4 +63,38 @@ export class UserService {
       },
     });
   }
+
+  /**
+   * Creates a user from a Google account if they do not exist, otherwise
+   * returns the existing user (log in). Keyed on the verified Google email.
+   */
+  async upsertGoogleUser(info: {
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    imageUrl?: string | null;
+  }) {
+    const email = info.email.toLowerCase().trim();
+    const existing = await prisma.user.findUnique({ where: { email } });
+
+    if (existing) {
+      return prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          firstName: info.firstName ?? existing.firstName,
+          lastName: info.lastName ?? existing.lastName,
+          imageUrl: info.imageUrl ?? existing.imageUrl,
+        },
+      });
+    }
+
+    return prisma.user.create({
+      data: {
+        email,
+        firstName: info.firstName ?? "",
+        lastName: info.lastName ?? "",
+        imageUrl: info.imageUrl ?? null,
+      },
+    });
+  }
 }

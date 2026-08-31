@@ -14,6 +14,8 @@ export class AuthRoutes implements IRoutes {
     router.post("/auth/signup", this.authController.signup);
     router.post("/auth/login", this.authController.login);
     router.get("/auth/me", authenticateJWT, this.authController.me);
+    router.get("/auth/google", this.authController.googleAuth);
+    router.get("/auth/google/callback", this.authController.googleCallback);
 
     return router;
   }

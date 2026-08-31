@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import IORedis from "ioredis";
 import { QdrantClient } from "@qdrant/js-client-rest";
@@ -175,7 +176,7 @@ export class Container {
   }
 
   public get authController(): AuthController {
-    return new AuthController();
+    return new AuthController(this.config);
   }
 
   public get routeRegistrars(): IRoutes[] {
@@ -199,6 +200,7 @@ export class Container {
     }
 
     app.use(express.json());
+    app.use(cookieParser());
 
     for (const registrar of this.routeRegistrars) {
       app.use(registrar.basePath, registrar.register());
