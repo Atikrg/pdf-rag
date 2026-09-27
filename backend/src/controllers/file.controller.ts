@@ -32,12 +32,31 @@ export class FileController {
         return response.status(400).json({ message: "No file uploaded" });
       }
 
+      // Re-uploading a PDF with the same file name is treated as an update:
+      // remove the previous version (stored file, indexed vectors, and DB row)
+      // so the RAG always serves the latest content for that document and the
+      // per-user document limit isn't double-counted.
+      const replaced = await this.removeExistingByName(
+        userId,
+        data.originalName,
+      );
+
       const canUpload = await this.documentService.canUpload(
         userId,
         this.config.maxDocsPerUser,
       );
 
       if (!canUpload) {
+        // The bucket middleware already stored the bytes, and the request is
+        // about to be rejected. Remove the object so a refused upload doesn't
+        // leak storage forever.
+        await this.fileStorage.deletePdf(data.objectName).catch((err) => {
+          console.error(
+            `Failed to remove ${data.objectName} after quota rejection:`,
+            err,
+          );
+        });
+
         return response.status(403).json({
           success: "fail",
           message: `You can upload a maximum of ${this.config.maxDocsPerUser} PDFs. Please delete one to upload another.`,
@@ -56,6 +75,9 @@ export class FileController {
       const document = await this.documentService.create(userId, meta);
       meta.documentId = document.id;
 
+      // Question enrichment is enqueued by the phase 1 worker once the document
+      // is actually indexed, not here: enqueueing now would let the enricher run
+      // before the chunks exist and skip the document.
       const jobId = await this.pdfQueue.enqueue(meta);
 
       return response.status(202).json({
@@ -112,7 +134,7 @@ export class FileController {
 
       const document = await this.documentService.getOwnedDocument(
         userId,
-        request.params.id,
+        String(request.params.id),
       );
 
       if (!document) {
@@ -178,7 +200,7 @@ export class FileController {
 
       const document = await this.documentService.getOwnedDocument(
         userId,
-        request.params.id,
+        String(request.params.id),
       );
 
       if (!document) {
@@ -191,11 +213,7 @@ export class FileController {
       );
 
       // Remove vectors, the stored file, then the DB row.
-      await this.qdrantService.deleteDocument(collectionName, document.id);
-      await this.fileStorage.deletePdf(document.objectName).catch((err) => {
-        console.error(`Failed to delete ${document.objectName} from storage:`, err);
-      });
-      await this.documentService.delete(userId, document.id);
+      await this.removeDocumentResources(document, collectionName);
 
       return response.status(200).json({
         success: true,
@@ -222,7 +240,7 @@ export class FileController {
 
       const document = await this.documentService.getOwnedDocument(
         userId,
-        request.params.id,
+        String(request.params.id),
       );
 
       if (!document) {
@@ -264,4 +282,58 @@ export class FileController {
       });
     }
   };
+
+  /**
+   * Deletes every document a user has that matches a file name, cleaning up
+   * its indexed vectors, stored file, and DB row. Used to replace the previous
+   * version of a re-uploaded document.
+   *
+   * Only `ready`/`failed` documents are replaced (see `findByName`). A document
+   * still `processing` is left alone: its queued job has not yet re-downloaded
+   * the file or written its vectors, so deleting the row and MinIO object here
+   * would fail that job outright. The in-flight document is allowed to finish
+   * and ends up as a second document with the same name.
+   */
+  private async removeExistingByName(userId: string, originalName: string) {
+    const collectionName = this.qdrantService.collectionForUser(
+      this.config.qdrantCollection,
+      userId,
+    );
+
+    const existing = await this.documentService.findByName(
+      userId,
+      originalName,
+    );
+
+    for (const document of existing) {
+      await this.removeDocumentResources(document, collectionName);
+    }
+
+    return existing.length;
+  }
+
+  /**
+   * Best-effort cleanup of a single document: indexed vectors, stored file,
+   * then the DB row. Failures deleting storage/vectors do not abort the rest.
+   */
+  private async removeDocumentResources(document: any, collectionName: string) {
+    await this.qdrantService
+      .deleteDocument(collectionName, document.id)
+      .catch((err) =>
+        console.error(`Failed to delete vectors for ${document.id}:`, err),
+      );
+
+    await this.fileStorage.deletePdf(document.objectName).catch((err) => {
+      console.error(
+        `Failed to delete ${document.objectName} from storage:`,
+        err,
+      );
+    });
+
+    await this.documentService
+      .delete(document.userId, document.id)
+      .catch((err) => {
+        console.error(`Failed to delete row for ${document.id}:`, err);
+      });
+  }
 }

@@ -20,6 +20,11 @@ export class AppConfig {
     public readonly clerkJwtPem: string,
     public readonly maxDocsPerUser: number,
     public readonly aiModel: string,
+    public readonly minRelevantScore: number,
+    public readonly questionsPerChunk: number,
+    public readonly chatMaxHistoryChars: number,
+    /** Origins allowed to open the chat WebSocket. Empty means allow any. */
+    public readonly allowedWsOrigins: string[],
     public readonly googleClientId: string,
     public readonly googleClientSecret: string,
     public readonly googleRedirectUri: string,
@@ -46,6 +51,22 @@ export class AppConfig {
         process.env.CLERK_JWT_PEM ?? "",
         Number(process.env.MAX_DOCS_PER_USER ?? 5),
         process.env.AI_MODEL ?? "openrouter/free",
+        // Minimum dense cosine similarity for a retrieved chunk to be treated as
+        // relevant enough to answer from. Below this the chat endpoint abstains
+        // instead of letting the model improvise. Calibrate against logged
+        // scores before raising it: too high causes false abstentions.
+        Number(process.env.MIN_RELEVANT_SCORE ?? 0.35),
+        // Hypothetical questions generated per chunk during phase-2 enrichment.
+        Number(process.env.QUESTIONS_PER_CHUNK ?? 6),
+        // Character budget for the prior conversation sent with each request.
+        // ~4 chars per token, so the default is roughly a 3k-token history.
+        Number(process.env.CHAT_MAX_HISTORY_CHARS ?? 12000),
+        // Comma-separated allowlist for the chat WebSocket origin, e.g.
+        // "http://localhost:3001,https://app.example.com".
+        (process.env.ALLOWED_WS_ORIGINS ?? "")
+          .split(",")
+          .map((origin) => origin.trim())
+          .filter(Boolean),
         process.env.GOOGLE_CLIENT_ID ?? "",
         process.env.GOOGLE_CLIENT_SECRET ?? "",
         process.env.GOOGLE_REDIRECT_URI ?? "",

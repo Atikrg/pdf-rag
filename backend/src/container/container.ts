@@ -6,14 +6,18 @@ import { QdrantClient } from "@qdrant/js-client-rest";
 import { AppConfig } from "../config/AppConfig";
 import { MinioFileStorage } from "../infrastructure/MinioFileStorage";
 import { BullMqPdfQueue } from "../infrastructure/BullMqPdfQueue";
+import { BullMqQuestionQueue } from "../infrastructure/BullMqQuestionQueue";
+import { RedisCache } from "../infrastructure/RedisCache";
+import { TokenSessionStore } from "../infrastructure/TokenSessionStore";
 import type { IFileStorage } from "../core/ports/IFileStorage";
 import type { IPdfProcessingQueue } from "../core/ports/IPdfProcessingQueue";
+import type { IQuestionQueue } from "../core/ports/IQuestionQueue";
 import { RagService } from "../services/rag.service";
 import { QdrantService } from "../services/qdrant.service";
 import { OpenAiService } from "../services/openai.service";
 import { ChatService } from "../services/chat.service";
 import { DocumentService } from "../services/document.service";
-import { PdfProcessingPipeline } from "../services/PdfProcessingPipeline";
+import { DocumentProcessingPipeline } from "../services/DocumentProcessingPipeline";
 import { HFEmbeddings } from "../lib/HFEmbeddings.lib";
 import { openaiClient } from "../lib/openai.lib";
 import { FileController } from "../controllers/file.controller";
@@ -35,13 +39,16 @@ export class Container {
   private qdrantClientInstance: QdrantClient | null = null;
   private fileStorageInstance: IFileStorage | null = null;
   private pdfQueueInstance: IPdfProcessingQueue | null = null;
+  private questionQueueInstance: IQuestionQueue | null = null;
   private ragServiceInstance: RagService | null = null;
   private qdrantServiceInstance: QdrantService | null = null;
   private openAiServiceInstance: OpenAiService | null = null;
-  private pdfPipelineInstance: PdfProcessingPipeline | null = null;
+  private documentPipelineInstance: DocumentProcessingPipeline | null = null;
   private chatServiceInstance: ChatService | null = null;
   private documentServiceInstance: DocumentService | null = null;
   private routeRegistrarsCache: IRoutes[] | null = null;
+  private redisCacheInstance: RedisCache | null = null;
+  private tokenSessionStoreInstance: TokenSessionStore | null = null;
 
   private constructor() {
     this.config = AppConfig.getInstance();
@@ -79,6 +86,16 @@ export class Container {
     }
 
     return this.pdfQueueInstance;
+  }
+
+  public get questionQueue(): IQuestionQueue {
+    if (!this.questionQueueInstance) {
+      this.questionQueueInstance = new BullMqQuestionQueue(
+        this.getRedisConnection(),
+      );
+    }
+
+    return this.questionQueueInstance;
   }
 
   public get ragService(): RagService {
@@ -138,17 +155,18 @@ export class Container {
     return this.documentServiceInstance;
   }
 
-  public get pdfPipeline(): PdfProcessingPipeline {
-    if (!this.pdfPipelineInstance) {
-      this.pdfPipelineInstance = new PdfProcessingPipeline(
+  public get documentPipeline(): DocumentProcessingPipeline {
+    if (!this.documentPipelineInstance) {
+      this.documentPipelineInstance = new DocumentProcessingPipeline(
         this.config,
         this.fileStorage,
         this.ragService,
         this.qdrantService,
+        this.openAiService,
       );
     }
 
-    return this.pdfPipelineInstance;
+    return this.documentPipelineInstance;
   }
 
   public get fileController(): FileController {
@@ -177,6 +195,22 @@ export class Container {
 
   public get authController(): AuthController {
     return new AuthController(this.config);
+  }
+
+  public get redisCache(): RedisCache {
+    if (!this.redisCacheInstance) {
+      this.redisCacheInstance = new RedisCache(this.getRedisConnection());
+    }
+    return this.redisCacheInstance;
+  }
+
+  public get tokenSessionStore(): TokenSessionStore {
+    if (!this.tokenSessionStoreInstance) {
+      this.tokenSessionStoreInstance = new TokenSessionStore(
+        this.getRedisConnection(),
+      );
+    }
+    return this.tokenSessionStoreInstance;
   }
 
   public get routeRegistrars(): IRoutes[] {
@@ -221,6 +255,22 @@ export class Container {
 
     await this.qdrantClient.getCollections();
     console.log("QDRANT connected");
+  }
+
+  /**
+   * Releases infrastructure connections on shutdown. Safe to call multiple
+   * times (idempotent) and resilient when a resource was never connected.
+   */
+  public async disconnect(): Promise<void> {
+    if (this.redisConnection) {
+      try {
+        this.redisConnection.disconnect();
+        console.log("REDIS disconnected");
+      } catch (error) {
+        console.error("REDIS disconnect error:", error);
+      }
+      this.redisConnection = null;
+    }
   }
 }
 

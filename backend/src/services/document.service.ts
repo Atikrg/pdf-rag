@@ -38,22 +38,57 @@ export class DocumentService {
     });
   }
 
+  /**
+   * Prisma raises P2025 when an `update` targets a row that no longer exists.
+   * That happens legitimately here: a document can be deleted (by the user, or
+   * replaced by a same-name re-upload) while its processing job is still
+   * in flight. The job has nothing left to report against, so treat it as a
+   * no-op rather than failing the whole job.
+   */
+  private static isMissingRecord(error: unknown): boolean {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "P2025"
+    );
+  }
+
   async markCompleted(documentId: string, totalPages: number, totalChunks: number) {
-    return prisma.document.update({
-      where: { id: documentId },
-      data: {
-        status: "ready",
-        totalPages,
-        totalChunks,
-      },
-    });
+    try {
+      return await prisma.document.update({
+        where: { id: documentId },
+        data: {
+          status: "ready",
+          totalPages,
+          totalChunks,
+        },
+      });
+    } catch (error) {
+      if (DocumentService.isMissingRecord(error)) {
+        console.warn(
+          `markCompleted: document ${documentId} was deleted while processing; skipping.`,
+        );
+        return null;
+      }
+      throw error;
+    }
   }
 
   async markFailed(documentId: string) {
-    return prisma.document.update({
-      where: { id: documentId },
-      data: { status: "failed" },
-    });
+    try {
+      return await prisma.document.update({
+        where: { id: documentId },
+        data: { status: "failed" },
+      });
+    } catch (error) {
+      if (DocumentService.isMissingRecord(error)) {
+        console.warn(
+          `markFailed: document ${documentId} was deleted while processing; skipping.`,
+        );
+        return null;
+      }
+      throw error;
+    }
   }
 
   async listByUser(userId: string) {
@@ -74,6 +109,25 @@ export class DocumentService {
   async getOwnedDocument(userId: string, documentId: string) {
     return prisma.document.findFirst({
       where: { id: documentId, userId },
+    });
+  }
+
+  /**
+   * Finds all of a user's documents that share a given original file name.
+   * Used to detect re-uploads so the previous version can be replaced.
+   *
+   * `statuses` deliberately excludes `processing` by default: replacing a
+   * still-processing document would delete the MinIO object and DB row that its
+   * in-flight job still needs, killing that job. Such a job is left to finish
+   * and simply becomes a second same-named document.
+   */
+  async findByName(
+    userId: string,
+    originalName: string,
+    statuses: string[] = ["ready", "failed"],
+  ) {
+    return prisma.document.findMany({
+      where: { userId, originalName, status: { in: statuses } },
     });
   }
 

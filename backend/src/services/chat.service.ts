@@ -93,26 +93,47 @@ export class ChatService {
   }
 
   /**
-   * Formats the most recent prior turns (excluding the current prompt) so the
-   * model can answer follow-ups without answering from history.
+   * Formats the full prior conversation (excluding the message currently being
+   * answered) so the model has the whole thread for a document-scoped session.
+   *
+   * Bounded by a character budget rather than a turn count: the caller wants the
+   * entire conversation, but a long session would otherwise grow the prompt
+   * without limit. When the budget is exceeded the oldest turns are dropped, and
+   * the truncation is stated in the prompt so the model knows earlier context is
+   * missing rather than assuming it was never said.
    */
-  async formatHistory(sessionId: string, currentPrompt: string, limit = 5) {
+  async formatHistory(
+    sessionId: string,
+    currentPrompt: string,
+    maxChars = 12_000,
+  ) {
     const messages = await prisma.message.findMany({
       where: { sessionId },
-      orderBy: { createdAt: "desc" },
-      take: limit * 2,
-      select: { role: true, content: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+      select: { role: true, content: true },
     });
 
-    const prior = messages
-      .slice()
-      .reverse()
+    const lines = messages
       .filter((m) => m.content !== currentPrompt)
-      .slice(-limit * 2);
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
 
-    return prior
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n");
+    if (lines.length === 0) return "";
+
+    let kept = lines;
+    let truncated = false;
+
+    let total = lines.reduce((sum, line) => sum + line.length + 1, 0);
+    while (total > maxChars && kept.length > 1) {
+      kept = kept.slice(1);
+      total = kept.reduce((sum, line) => sum + line.length + 1, 0);
+      truncated = true;
+    }
+
+    const body = kept.join("\n");
+
+    return truncated
+      ? `[earlier turns omitted to fit the context window]\n${body}`
+      : body;
   }
 
   async addMessage(

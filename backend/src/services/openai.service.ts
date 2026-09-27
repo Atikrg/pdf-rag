@@ -1,4 +1,8 @@
 import { OpenAI } from "openai";
+import {
+  parseQuestionList,
+  questionGenerationPrompt,
+} from "./prompts.service";
 
 export class OpenAiService {
   constructor(
@@ -6,14 +10,45 @@ export class OpenAiService {
     private readonly model: string,
   ) {}
 
-  async generateResponseStream(prompt: string): Promise<{
-    stream: AsyncIterable<string>;
-  }> {
+  /**
+   * Generates hypothetical questions a chunk would answer, for retrieval-side
+   * query expansion. Returns up to `count` questions, or fewer if the model
+   * produced fewer valid ones.
+   */
+  async generateQuestions(
+    chunkText: string,
+    count = 6,
+  ): Promise<string[]> {
     const response = await this.openaiClient.chat.completions.create({
       model: this.model,
-      messages: [{ role: "user", content: prompt }],
-      stream: true,
+      temperature: 0.4,
+      messages: [
+        { role: "user", content: questionGenerationPrompt(chunkText, count) },
+      ],
     });
+
+    const content = response.choices?.[0]?.message?.content ?? "";
+
+    return parseQuestionList(content, count);
+  }
+
+  async generateResponseStream(
+    prompt: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    stream: AsyncIterable<string>;
+  }> {
+    const response = await this.openaiClient.chat.completions.create(
+      {
+        model: this.model,
+        // Deterministic answers: the response must be grounded in the retrieved
+        // context, and sampling adds unsupported detail.
+        temperature: 0,
+        messages: [{ role: "user", content: prompt }],
+        stream: true,
+      },
+      { signal },
+    );
 
     return {
       stream: {
@@ -31,6 +66,7 @@ export class OpenAiService {
   async complete(prompt: string): Promise<string> {
     const response = await this.openaiClient.chat.completions.create({
       model: this.model,
+      temperature: 0,
       messages: [{ role: "user", content: prompt }],
     });
 

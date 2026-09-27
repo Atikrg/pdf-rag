@@ -17,6 +17,10 @@ export type JobStatus = {
 
 export type Citation = {
   pageIndex?: number;
+  sheetName?: string;
+  rowIndex?: number;
+  paragraphIndex?: number;
+  sectionIndex?: number;
   lines?: { from?: number; to?: number } | null;
 };
 
@@ -172,72 +176,64 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
-function parseSSEStream(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
+/**
+ * Fans a server frame out to the caller's handlers. Kept transport-agnostic so
+ * the WebSocket event names and payloads stay in one place.
+ */
+function dispatchFrame(
+  event: string,
+  data: unknown,
   handlers: ChatStreamHandlers,
-): Promise<void> {
-  const decoder = new TextDecoder();
-  let buffer = "";
+): void {
+  const payload: { [key: string]: unknown } =
+    typeof data === "object" && data !== null
+      ? (data as { [key: string]: unknown })
+      : { message: String(data ?? "") };
 
-  const handleEvent = (event: string, rawData: string) => {
-    let payload: { [key: string]: unknown };
-    try {
-      const parsed: unknown = JSON.parse(rawData);
-      payload =
-        typeof parsed === "object" && parsed !== null
-          ? (parsed as { [key: string]: unknown })
-          : { message: rawData };
-    } catch {
-      payload = { message: rawData };
-    }
-
-    switch (event) {
-      case "delta":
-        if (typeof payload.text === "string") {
-          handlers.onDelta({ text: payload.text });
-        }
-        break;
-      case "session":
-        handlers.onSession?.(payload as { sessionId: string; title: string });
-        break;
-      case "title":
-        if (typeof payload.title === "string") handlers.onTitle?.(payload.title);
-        break;
-      case "done":
-        handlers.onDone(payload as unknown as ChatDone);
-        break;
-      case "error":
-        handlers.onError(
-          typeof payload.message === "string" ? payload.message : "Unknown error",
-          typeof payload.code === "number" ? payload.code : undefined,
-        );
-        break;
-      default:
-        break;
-    }
-  };
-
-  return (async () => {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      let sepIndex: number;
-      while ((sepIndex = buffer.indexOf("\n\n")) !== -1) {
-        const block = buffer.slice(0, sepIndex);
-        buffer = buffer.slice(sepIndex + 2);
-
-        let event = "message";
-        let dataLine = "";
-        for (const line of block.split("\n")) {
-          if (line.startsWith("event:")) event = line.slice(6).trim();
-          else if (line.startsWith("data:")) dataLine = line.slice(5).trim();
-        }
-        if (dataLine) handleEvent(event, dataLine);
+  switch (event) {
+    case "delta":
+      if (typeof payload.text === "string") {
+        handlers.onDelta({ text: payload.text });
       }
-    }
-  })();
+      break;
+    case "session":
+      handlers.onSession?.(payload as { sessionId: string; title: string });
+      break;
+    case "title":
+      if (typeof payload.title === "string") handlers.onTitle?.(payload.title);
+      break;
+    case "done":
+      handlers.onDone(payload as unknown as ChatDone);
+      break;
+    case "error":
+      handlers.onError(
+        typeof payload.message === "string" ? payload.message : "Unknown error",
+        typeof payload.code === "number" ? payload.code : undefined,
+      );
+      break;
+    default:
+      break;
+  }
+}
+
+/**
+ * Resolves the chat WebSocket base URL.
+ *
+ * The socket must bypass the Next.js rewrite layer, which does not proxy
+ * upgrade requests, so we point straight at the backend. Set
+ * `NEXT_PUBLIC_WS_URL` in production; in development we derive it from the
+ * current hostname and the backend port.
+ */
+function wsBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_WS_URL;
+  if (configured) return configured.replace(/\/+$/, "");
+
+  if (typeof window !== "undefined") {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${proto}//${window.location.hostname}:5000`;
+  }
+
+  return "ws://localhost:5000";
 }
 
 export async function login(email: string, password: string): Promise<AuthResponse> {
@@ -337,43 +333,79 @@ export async function getSummary(documentId: string): Promise<string> {
 }
 
 /**
- * Streams a chat response from the backend over Server-Sent Events. Returns a
- * promise that resolves when the stream is fully consumed (after a `done` or
- * `error` event). Abortable via the returned AbortController.
+ * Streams a chat response from the backend over a WebSocket. One connection is
+ * opened per turn: the prompt is sent on open, `delta` frames stream back, and
+ * the server closes the socket once the turn ends. The returned promise
+ * resolves when the socket closes; abort via the returned AbortController.
  */
 export function streamChat(
   input: SendChatInput,
   handlers: ChatStreamHandlers,
 ): { promise: Promise<void>; controller: AbortController } {
   const controller = new AbortController();
-  const token = getToken();
 
-  const promise = (async () => {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(input),
-    });
+  const promise = new Promise<void>((resolve) => {
+    const token = getToken();
 
-    if (!res.ok || !res.body) {
-      let message = `Failed to get a response (${res.status})`;
-      try {
-        const data = await res.json();
-        message = data?.message ?? message;
-      } catch {
-        /* ignore */
-      }
-      handlers.onError(message, res.status);
+    if (!token) {
+      handlers.onError("Not authenticated", 401);
+      resolve();
       return;
     }
 
-    const reader = res.body.getReader();
-    await parseSSEStream(reader, handlers);
-  })();
+    // Browsers cannot set an Authorization header on a WebSocket handshake, so
+    // the JWT travels as a query parameter.
+    const url = `${wsBaseUrl()}/ws?token=${encodeURIComponent(token)}`;
+    const socket = new WebSocket(url);
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    // Aborting closes the socket; the server sees the disconnect and stops
+    // generating, so a cancelled message costs nothing.
+    const onAbort = () => {
+      try {
+        socket.close();
+      } catch {
+        /* already closing */
+      }
+    };
+    controller.signal.addEventListener("abort", onAbort, { once: true });
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify(input));
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const frame = JSON.parse(String(event.data)) as {
+          event?: string;
+          data?: unknown;
+        };
+        dispatchFrame(frame.event ?? "message", frame.data, handlers);
+      } catch {
+        /* ignore malformed frame */
+      }
+    };
+
+    socket.onerror = () => {
+      handlers.onError("Could not reach the chat server");
+    };
+
+    socket.onclose = (event) => {
+      controller.signal.removeEventListener("abort", onAbort);
+      // 4401 is the backend's unauthorized close code.
+      if (event.code === 4401) {
+        clearAuth();
+        handlers.onError("Unauthorized", 401);
+      }
+      finish();
+    };
+  });
 
   return { promise, controller };
 }

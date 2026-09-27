@@ -11,8 +11,8 @@ export class ChatRoutes implements IRoutes {
   public register(): Router {
     const router = Router();
 
-    // Streaming chat (Server-Sent Events)
-    router.post("/chat", authenticateJWT, this.chatController.chat);
+    // Chat streaming is served over WebSockets at /ws (see websocket/chatWebSocket.ts).
+    // These are the plain request/response session endpoints.
 
     // Chat session management
     router.post("/sessions", authenticateJWT, this.chatController.createSession);

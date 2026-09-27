@@ -56,16 +56,23 @@ export class BullMqWorkerFactory {
   public create(
     processor: (
       meta: StoredFileMeta,
+      report: (progress: number) => void,
     ) => Promise<PdfProcessingResult>,
   ): Worker<StoredFileMeta> {
     return new Worker<StoredFileMeta>(
       PDF_QUEUE_NAME,
       async (job) => {
-        await job.updateProgress(5);
+        // BullMQ only keeps the latest value, so the pipeline pushes progress
+        // at each stage instead of leaving the job pinned at 5%.
+        const report = (progress: number) => {
+          void job.updateProgress(progress);
+        };
 
-        const result = await processor(job.data);
+        report(5);
 
-        await job.updateProgress(100);
+        const result = await processor(job.data, report);
+
+        report(100);
 
         return result;
       },

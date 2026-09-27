@@ -6,10 +6,15 @@ import type { ChatService } from "../services/chat.service";
 import { llmResponsePrompt } from "../services/prompts.service";
 import { chatStreamSchema } from "../types/zodSchema";
 
-function sse(response: Response, event: string, data: unknown) {
-  response.write(`event: ${event}\n`);
-  response.write(`data: ${JSON.stringify(data)}\n\n`);
-}
+/**
+ * Transport-agnostic event sink. The chat turn emits the same `delta` /
+ * `session` / `title` / `done` / `error` events regardless of whether they are
+ * delivered over a WebSocket frame or an HTTP stream, so the turn logic has no
+ * knowledge of the transport.
+ */
+export type EventSink = {
+  send: (event: string, data: unknown) => void;
+};
 
 export class ChatController {
   constructor(
@@ -106,27 +111,25 @@ export class ChatController {
 
   // ---- Streaming chat ----
 
-  public chat = async (request: Request, response: Response) => {
-    const userId = request.userId;
-    if (!userId) {
-      return response.status(401).json({ message: "Unauthorized" });
-    }
-
-    const { data, success } = chatStreamSchema.safeParse(request.body);
+  /**
+   * Runs one chat turn for an already-authenticated user, emitting progress
+   * through `sink`. Takes the user id directly rather than an Express request so
+   * the WebSocket transport can reuse it.
+   */
+  public streamTurn = async (
+    rawInput: unknown,
+    userId: string,
+    sink: EventSink,
+    signal?: AbortSignal,
+  ) => {
+    const { data, success } = chatStreamSchema.safeParse(rawInput);
     if (!success || !data) {
-      return response.status(400).json({ message: "Prompt is required" });
+      sink.send("error", { message: "Prompt is required", code: 400 });
+      return;
     }
-
-    response.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    });
 
     const sendError = (message: string, code = 500) => {
-      sse(response, "error", { message, code });
-      response.end();
+      sink.send("error", { message, code });
     };
 
     let sessionId = data.sessionId;
@@ -178,22 +181,23 @@ export class ChatController {
       let titlePromise: Promise<void> | null = null;
       if (isNewSession) {
         title = data.prompt.trim().slice(0, 40) || "New chat";
-        sse(response, "session", { sessionId, title, isNewSession: true });
+        sink.send("session", { sessionId, title, isNewSession: true });
         titlePromise = this.chatService
           .ensureTitle(sessionId, data.prompt)
           .then((updated) => {
             if (updated && updated.title) {
               title = updated.title;
-              sse(response, "title", { title: updated.title });
+              sink.send("title", { title: updated.title });
             }
           })
           .catch(() => {});
       }
 
-      // Include a short slice of prior turns for follow-up questions.
+      // Send the whole prior conversation for this document-scoped session.
       const history = await this.chatService.formatHistory(
         sessionId,
         data.prompt,
+        this.config.chatMaxHistoryChars,
       );
 
       const hybridSearch = await this.qdrantService.hybridSearch(
@@ -211,61 +215,158 @@ export class ChatController {
 
       const topChunks = uniqueChunks.slice(0, 5);
 
+      // Relevance gate. Retrieval returning *something* is not evidence that it
+      // is relevant; without this check a near-zero match is handed to the model
+      // as context and it will answer from it confidently. Score the top hit
+      // against the configured floor and abstain below it.
+      const bestScore = topChunks.reduce(
+        (best, chunk) => Math.max(best, chunk.score ?? 0),
+        0,
+      );
+      const isRelevant = bestScore >= this.config.minRelevantScore;
+
+      console.log(
+        `[chat] topScore=${bestScore.toFixed(3)} threshold=${this.config.minRelevantScore} ` +
+          `hits=${hybridSearch.length} relevant=${isRelevant}`,
+      );
+
       const citations = [
         ...new Map(
           topChunks
             .map((chunk) => {
-              const pageIndex = chunk.metadata?.pageIndex;
+              const meta = chunk.metadata as any;
               return {
-                pageIndex:
-                  typeof pageIndex === "number" && Number.isFinite(pageIndex)
-                    ? pageIndex
-                    : undefined,
+                pageIndex: typeof meta?.pageIndex === "number" ? meta.pageIndex : undefined,
+                sheetName: typeof meta?.sheetName === "string" ? meta.sheetName : undefined,
+                rowIndex: typeof meta?.rowIndex === "number" ? meta.rowIndex : undefined,
+                paragraphIndex: typeof meta?.paragraphIndex === "number" ? meta.paragraphIndex : undefined,
+                sectionIndex: typeof meta?.sectionIndex === "number" ? meta.sectionIndex : undefined,
               };
             })
-            .filter((citation) => citation.pageIndex != null)
-            .map((citation) => [
-              `page-${citation.pageIndex}`,
-              citation,
-            ]),
+            .filter(
+              (c) =>
+                c.pageIndex != null ||
+                (c.sheetName != null && c.rowIndex != null) ||
+                c.paragraphIndex != null ||
+                c.sectionIndex != null
+            )
+            .map((citation) => {
+              const key = citation.pageIndex != null
+                ? `page-${citation.pageIndex}`
+                : citation.sheetName != null
+                ? `sheet-${citation.sheetName}-row-${citation.rowIndex}`
+                : citation.paragraphIndex != null
+                ? `paragraph-${citation.paragraphIndex}`
+                : `section-${citation.sectionIndex}`;
+              return [key, citation];
+            }),
         ).values(),
       ];
 
       const responsePrompt = llmResponsePrompt(data.prompt, topChunks, history);
 
-      if (topChunks.length === 0) {
-        sse(response, "delta", {
-          text: "I couldn't find relevant content for that question in the document. Try rephrasing or asking about the indexed pages.",
-        });
+      // Citation verification can remove entries, so the `done` event and the
+      // persisted message both read this rather than the raw list.
+      let verifiedCitations: typeof citations = citations;
+
+      if (topChunks.length === 0 || !isRelevant) {
+        const reason =
+          topChunks.length === 0
+            ? "no matching content"
+            : `best match scored ${bestScore.toFixed(2)}, below the ${this.config.minRelevantScore} relevance threshold`;
+
+        const abstention = `I couldn't find relevant content for that question in the document (${reason}). Try rephrasing or asking about the indexed pages.`;
+
+        sink.send("delta", { text: abstention });
+
+        // Persist the abstention so the stored transcript has no dangling
+        // unanswered user turn.
+        await this.chatService.addMessage(sessionId, "ai", abstention, []);
+
+        console.log(`[chat] abstained: ${reason}`);
       } else {
         const { stream } =
-          await this.openAiService.generateResponseStream(responsePrompt);
+          await this.openAiService.generateResponseStream(
+            responsePrompt,
+            signal,
+          );
 
         let fullText = "";
 
         for await (const delta of stream) {
+          if (signal?.aborted) throw new Error("Client disconnected");
           fullText += delta;
-          sse(response, "delta", { text: delta });
+          sink.send("delta", { text: delta });
         }
 
-        await this.chatService.addMessage(sessionId, "ai", fullText, citations);
+        // The prompt asks for inline "(Page N)" markers, but nothing verified
+        // them, so a model could cite a page that was never in its context.
+        // Cross-check cited pages against what was actually retrieved, drop the
+        // citations we cannot substantiate, and tell the reader when they
+        // disagree.
+        const retrievedPages = new Set<number>(
+          topChunks
+            .map((chunk) => (chunk.metadata as any)?.pageIndex)
+            .filter((page): page is number => typeof page === "number"),
+        );
+
+        const citedPages = new Set<number>();
+        for (const match of fullText.matchAll(/\(?\s*Page\s+(\d+)\s*\)?/gi)) {
+          citedPages.add(Number(match[1]));
+        }
+
+        const unverifiedPages = [...citedPages].filter(
+          (page) => !retrievedPages.has(page),
+        );
+
+        if (unverifiedPages.length > 0) {
+          verifiedCitations = citations.filter(
+            (citation) =>
+              citation.pageIndex == null ||
+              !unverifiedPages.includes(citation.pageIndex),
+          );
+
+          const note =
+            `\n\n_Note: cited page(s) ${unverifiedPages.join(", ")} were not in the ` +
+            `retrieved context, so ${unverifiedPages.length === 1 ? "that reference has" : "those references have"} ` +
+            `been omitted from the source list._`;
+
+          fullText += note;
+          sink.send("delta", { text: note });
+
+          console.warn(
+            `[chat] dropped unverified citation page(s): ${unverifiedPages.join(", ")}`,
+          );
+        }
+
+        await this.chatService.addMessage(
+          sessionId,
+          "ai",
+          fullText,
+          verifiedCitations,
+        );
       }
 
       // Wait for title generation (if any) to settle so the `done` event can
       // carry the final title to the client.
       if (titlePromise) await titlePromise;
 
-      sse(response, "done", {
+      sink.send("done", {
         text: "",
-        citations,
+        citations: verifiedCitations,
         references: hybridSearch.length,
         sessionId,
         documentId,
         title,
       });
-
-      response.end();
     } catch (error: any) {
+      // A client disconnect is a normal cancellation, not a failure: don't roll
+      // back state or try to report an error to a socket that is already gone.
+      if (signal?.aborted) {
+        console.log("Chat turn aborted by client");
+        return;
+      }
+
       console.error("Chat error:", error);
 
       // Roll back the persisted user message (and session) so a failed turn
