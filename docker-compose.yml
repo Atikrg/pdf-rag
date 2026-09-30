@@ -113,6 +113,12 @@ services:
       # `environment` wins over `env_file`, so the Docker stack never serves
       # unauthenticated requests as a shared dev-user.
       ALLOW_DEV_AUTH: "false"
+      # DEV-ONLY, and safe to delete the moment a mailer exists. Returns the
+      # password-reset link in the API response so the flow is usable without
+      # email. Port 5000 is published on all interfaces, so anyone who can
+      # reach it could mint a reset link for a known address and take over that
+      # account. Never enable this outside a local dev stack.
+      DEV_PASSWORD_RESET: "true"
     ports:
       - "5000:5000"
     command: sh -c "bun run dev"

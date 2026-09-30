@@ -276,6 +276,44 @@ export async function signup(
   return data;
 }
 
+export type ForgotPasswordResponse = {
+  success: boolean;
+  message: string;
+  /**
+   * Only present when the backend runs with DEV_PASSWORD_RESET=true, standing
+   * in for the email link. Absent in any environment that has a mailer.
+   */
+  devResetUrl?: string;
+};
+
+/**
+ * Requests a reset link. Intentionally does not authenticate: it must work
+ * before the caller can prove who they are.
+ */
+export async function requestPasswordReset(
+  email: string,
+): Promise<ForgotPasswordResponse> {
+  return apiFetch<ForgotPasswordResponse>("/api/auth/forgot-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(
+  token: string,
+  password: string,
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch<{ success: boolean; message: string }>(
+    "/api/auth/reset-password",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+    },
+  );
+}
+
 export async function fetchMe(): Promise<User> {
   const data = await apiFetch<{ success: boolean; user: User }>("/api/auth/me");
   setStoredUser(data.user);

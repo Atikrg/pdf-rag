@@ -71,6 +71,19 @@ export class AppConfig {
     public readonly allowDevAuth: boolean,
     /** Hard ceiling for a single upload, enforced by multer before buffering completes. */
     public readonly maxUploadBytes: number,
+    /** Base URL of the Next.js client, used to build password-reset links. */
+    public readonly clientBaseUrl: string,
+    /**
+     * Opt-in switch that returns the password-reset link in the API response
+     * and echoes it to the server log, standing in for the email delivery that
+     * is not implemented yet.
+     *
+     * Off by default and never derived from NODE_ENV: the compose backend sets
+     * NODE_ENV=development, so inferring it would publish a working
+     * account-takeover link on every non-production stack. When a mailer lands,
+     * this flag and the logging branch should both be deleted.
+     */
+    public readonly devPasswordReset: boolean,
   ) {}
 
   public static getInstance(): AppConfig {
@@ -120,6 +133,8 @@ export class AppConfig {
         // Uploads are buffered fully in memory before being written to MinIO, so
         // this doubles as the ceiling on a single request's heap usage.
         Number(process.env.MAX_UPLOAD_BYTES ?? 25 * 1024 * 1024),
+        process.env.CLIENT_BASE_URL ?? "http://localhost:3001",
+        process.env.DEV_PASSWORD_RESET === "true",
       );
     }
 

@@ -18,6 +18,19 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().email("Enter a valid email address"),
+});
+
+export const resetPasswordSchema = z.object({
+  // 43 chars for a base64url-encoded 32-byte token. Bounded so a caller cannot
+  // push an unbounded string through the SHA-256 on every guess.
+  token: z.string().trim().min(20).max(200, "Reset link is invalid"),
+  // Same rule as signup, so a reset cannot set a password the signup form
+  // would have rejected.
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
 export const chatStreamSchema = z.object({
   sessionId: z.string().min(1).optional(),
   // Bounded because the prompt is concatenated with retrieved document context

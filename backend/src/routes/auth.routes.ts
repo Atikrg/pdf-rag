@@ -42,8 +42,37 @@ export class AuthRoutes implements IRoutes {
       message: "Too many sign-in attempts. Try again later.",
     });
 
+    // Deliberately tight: this endpoint sends a reset link that is a working
+    // account-takeover primitive, so an attacker must not be able to spray
+    // requests at guessed addresses.
+    const forgotLimit = rateLimit(this.redis, {
+      windowMs: FIFTEEN_MINUTES,
+      limit: 5,
+      prefix: "auth-forgot",
+      message: "Too many reset requests. Try again later.",
+    });
+
+    // Brute-forcing a 32-byte token is infeasible, so this limit is here to
+    // bound bcrypt CPU: each attempt costs a hash at signup's cost factor.
+    const resetLimit = rateLimit(this.redis, {
+      windowMs: FIFTEEN_MINUTES,
+      limit: 10,
+      prefix: "auth-reset",
+      message: "Too many reset attempts. Try again later.",
+    });
+
     router.post("/auth/signup", signupLimit, this.authController.signup);
     router.post("/auth/login", loginLimit, this.authController.login);
+    router.post(
+      "/auth/forgot-password",
+      forgotLimit,
+      this.authController.forgotPassword,
+    );
+    router.post(
+      "/auth/reset-password",
+      resetLimit,
+      this.authController.resetPassword,
+    );
     router.get("/auth/me", authenticateJWT, this.authController.me);
     router.get("/auth/google", oauthLimit, this.authController.googleAuth);
     router.get(

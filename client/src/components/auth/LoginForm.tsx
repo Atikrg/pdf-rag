@@ -171,7 +171,7 @@ function LoginFormInner() {
             Password
           </label>
           <Link
-            href="/signup"
+            href="/forgot-password"
             className="text-[0.75rem] text-rose hover:text-rose-hover transition-colors"
           >
             Forgot password?

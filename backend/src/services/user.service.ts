@@ -65,6 +65,72 @@ export class UserService {
   }
 
   /**
+   * Issues a password-reset token, replacing any the user already holds.
+   *
+   * Only the hash is persisted, and the previous rows are deleted first so a
+   * user can only ever have one live reset link: a link mailed earlier must not
+   * keep working after a newer one is requested.
+   */
+  async createPasswordResetToken(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }) {
+    await prisma.passwordResetToken.deleteMany({
+      where: { userId: input.userId },
+    });
+
+    return prisma.passwordResetToken.create({
+      data: {
+        userId: input.userId,
+        tokenHash: input.tokenHash,
+        expiresAt: input.expiresAt,
+      },
+    });
+  }
+
+  /** Resolves a presented token to its user, or null if unknown or expired. */
+  async findUserByValidResetToken(tokenHash: string) {
+    const record = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+
+    if (!record) {
+      return null;
+    }
+
+    // Expiry is checked here rather than in a deleteMany sweep alone, so an
+    // expired row is unusable even if the sweep has not run yet.
+    if (record.expiresAt.getTime() <= Date.now()) {
+      return null;
+    }
+
+    return record.user;
+  }
+
+  async updatePasswordHash(userId: string, passwordHash: string) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+  }
+
+  /** Consumes the used token and clears any sibling tokens for the same user. */
+  async consumePasswordResetToken(tokenHash: string, userId: string) {
+    await prisma.passwordResetToken.deleteMany({
+      where: { userId },
+    });
+  }
+
+  /** Housekeeping: drops tokens that can no longer be redeemed. */
+  async purgeExpiredResetTokens() {
+    return prisma.passwordResetToken.deleteMany({
+      where: { expiresAt: { lte: new Date() } },
+    });
+  }
+
+  /**
    * Creates a user from a Google account if they do not exist, otherwise
    * returns the existing user (log in). Keyed on the verified Google email.
    */

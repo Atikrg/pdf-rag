@@ -4,9 +4,23 @@ import { AppError } from "../error/CustomError";
 import { UserService } from "../services/user.service";
 import { signToken } from "../utils/jwt";
 import type { AppConfig } from "../config/AppConfig";
-import { signupSchema, loginSchema } from "../types/zodSchema";
+import { signupSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } from "../types/zodSchema";
 
 const userService = new UserService();
+
+/** A reset link is only useful for as long as an email round-trip allows. */
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Hashes a reset token for storage and lookup.
+ *
+ * SHA-256 rather than bcrypt: the token is 32 bytes of CSPRNG output, so there
+ * is no low-entropy structure to slow-hash, and a database leak yields hashes
+ * that cannot be replayed against /auth/reset-password.
+ */
+function hashResetToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -216,6 +230,95 @@ export class AuthController {
       return response.status(200).json({ success: true, user: this.safeUser(user) });
     } catch (error) {
       return this.handleError(error, response, "Failed to load user");
+    }
+  };
+
+  public forgotPassword = async (request: Request, response: Response) => {
+    // The response is identical whether or not the address is registered, so
+    // this endpoint cannot be used to enumerate which emails have accounts.
+    const NEUTRAL =
+      "If an account exists for that email, a reset link has been sent.";
+
+    try {
+      const { data, success } = forgotPasswordSchema.safeParse(request.body);
+      if (!success || !data) {
+        throw new AppError(400, "Enter a valid email address");
+      }
+
+      const email = data.email.toLowerCase().trim();
+      const user = await userService.findByEmail(email);
+
+      // Only local accounts have a password to reset. A Google-only user has
+      // passwordHash = null and signs in with Google, so issuing them a link
+      // would imply a password exists when it does not.
+      if (user?.passwordHash) {
+        const token = crypto.randomBytes(32).toString("base64url");
+
+        await userService.createPasswordResetToken({
+          userId: user.id,
+          tokenHash: hashResetToken(token),
+          expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+        });
+
+        const resetUrl = `${this.config.clientBaseUrl.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+
+        // Stand-in for the email that is not implemented yet. Logged
+        // unconditionally so the link is recoverable in any environment.
+        console.log(`[password-reset] ${email}: ${resetUrl}`);
+
+        if (this.config.devPasswordReset) {
+          return response.status(200).json({
+            success: true,
+            message: NEUTRAL,
+            devResetUrl: resetUrl,
+          });
+        }
+      }
+
+      return response.status(200).json({ success: true, message: NEUTRAL });
+    } catch (error) {
+      return this.handleError(error, response, "Failed to process request");
+    }
+  };
+
+  public resetPassword = async (request: Request, response: Response) => {
+    try {
+      const { data, success } = resetPasswordSchema.safeParse(request.body);
+      if (!success || !data) {
+        throw new AppError(400, "Invalid reset link or password");
+      }
+
+      const user = await userService.findUserByValidResetToken(
+        hashResetToken(data.token),
+      );
+
+      // Unknown, already-used, and expired tokens are indistinguishable, so a
+      // caller cannot tell whether a token ever existed.
+      if (!user) {
+        throw new AppError(400, "This reset link is invalid or has expired");
+      }
+
+      const passwordHash = await Bun.password.hash(data.password, {
+        algorithm: "bcrypt",
+        cost: 10,
+      });
+
+      await userService.updatePasswordHash(user.id, passwordHash);
+      // Burn the token only after the password write succeeds, so a transient
+      // database error does not leave the user holding a spent link.
+      await userService.consumePasswordResetToken(
+        hashResetToken(data.token),
+        user.id,
+      );
+
+      console.log(`[password-reset] password changed for ${user.email}`);
+
+      return response.status(200).json({
+        success: true,
+        message: "Your password has been reset. You can sign in now.",
+      });
+    } catch (error) {
+      return this.handleError(error, response, "Failed to reset password");
     }
   };
 
