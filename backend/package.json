@@ -17,7 +17,9 @@
     "worker": "bun run src/workers/uploadFile.worker.ts",
     "worker:dev": "bun --watch run src/workers/uploadFile.worker.ts",
     "worker:enrich": "bun run src/workers/enrichment.worker.ts",
-    "worker:enrich:dev": "bun --watch run src/workers/enrichment.worker.ts"
+    "worker:enrich:dev": "bun --watch run src/workers/enrichment.worker.ts",
+    "reindex": "bun run src/scripts/reindexDocuments.ts",
+    "reindex:dry": "bun run src/scripts/reindexDocuments.ts --dry-run"
   },
   "peerDependencies": {
     "typescript": "^5"

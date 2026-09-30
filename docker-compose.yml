@@ -3,6 +3,17 @@
 # Infrastructure (qdrant, minio, redis, app-postgres) is bound to localhost
 # (127.0.0.1) so it only accepts connections from the local machine; the app
 # services (backend, client) publish to all interfaces on purpose.
+#
+# The image ships the embedding model (Xenova/all-MiniLM-L6-v2) inside
+# node_modules, but @huggingface/transformers still dials huggingface.co on load
+# to check for a newer revision. With no egress that is `ETIMEOUT`, and it took
+# the whole question-enrichment job down despite the weights being on disk.
+# These make the loader strictly offline. HFEmbeddings.lib.ts also passes
+# local_files_only so the code does not depend on this env being set.
+x-offline-embeddings: &offline-embeddings
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -119,6 +130,7 @@ services:
       # reach it could mint a reset link for a known address and take over that
       # account. Never enable this outside a local dev stack.
       DEV_PASSWORD_RESET: "true"
+      <<: *offline-embeddings
     ports:
       - "5000:5000"
     command: sh -c "bun run dev"
@@ -149,6 +161,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
       REDIS_URL: redis://:${REDIS_AUTH:-myredissecret}@redis:6379
       ALLOW_DEV_AUTH: "false"
+      <<: *offline-embeddings
     command: sh -c "bun run worker:enrich"
     volumes:
       - ./backend/src:/app/src
@@ -174,6 +187,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
       REDIS_URL: redis://:${REDIS_AUTH:-myredissecret}@redis:6379
       ALLOW_DEV_AUTH: "false"
+      <<: *offline-embeddings
     command: sh -c "bun run worker"
     volumes:
       - ./backend/src:/app/src

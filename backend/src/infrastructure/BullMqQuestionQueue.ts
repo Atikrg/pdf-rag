@@ -5,8 +5,12 @@ import type { StoredFileMeta } from "../core/ports/IFileStorage";
 
 export const QUESTION_QUEUE_NAME = "question-enrichment";
 
-/** Attempts per job. Enrichment is best-effort, so it retries briefly. */
-const ENRICHMENT_ATTEMPTS = 2;
+/**
+ * Attempts per job. Enrichment makes one LLM call per chunk, so a transient
+ * rate limit or provider blip costs the whole document, not a single chunk.
+ * It is worth far more retries than phase 1, which is local computation.
+ */
+const ENRICHMENT_ATTEMPTS = 4;
 
 export class BullMqQuestionQueue implements IQuestionQueue {
   private queue: Queue<StoredFileMeta> | null = null;
@@ -71,6 +75,13 @@ export class BullMqQuestionWorkerFactory {
         // Generation is dominated by model latency, so several documents can be
         // enriched in flight without competing for CPU.
         concurrency: 2,
+        // BullMQ defaults this to 30s, which is not enough here: embedding every
+        // chunk runs locally on CPU via onnx, so a document with many chunks
+        // holds the lock far longer than the default. A long-running job that
+        // blows the lock gets killed with "job stalled more than allowable
+        // limit" even though it was making progress. Generous enough that only a
+        // genuinely wedged job trips it.
+        lockDuration: 10 * 60 * 1000,
       },
     );
   }

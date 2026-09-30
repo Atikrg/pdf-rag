@@ -171,6 +171,18 @@ export class DocumentProcessingPipeline {
       (done, total) => report?.(75 + Math.round((done / total) * 25)),
     );
 
+    // A document with zero questions still looks healthy from the outside: the
+    // job succeeds and status stays `ready`, but hypothetical-question
+    // retrieval can never match it. This happens whenever the LLM refuses or
+    // rate-limits every chunk, so treat an empty result as a failure and let
+    // BullMQ retry it instead of silently losing the document's questions.
+    if (questionsIndexed === 0) {
+      throw new Error(
+        `Question enrichment produced 0 questions for document ${meta.documentId} ` +
+          `(${chunks.length} chunks attempted); treating as failure so the job retries`,
+      );
+    }
+
     return { questionsIndexed };
   }
 }

@@ -275,6 +275,32 @@ export class QdrantService {
       .sort((a, b) => a.chunkIndex - b.chunkIndex);
   }
 
+  /**
+   * Counts points of a given kind for one document. Used by the re-index
+   * script to tell a fully-built document from one whose enrichment phase
+   * never ran, which is otherwise invisible from Postgres.
+   */
+  async countByKind(
+    collectionName: string,
+    kind: "chunk" | "question",
+    documentId?: string,
+  ): Promise<number> {
+    if (!(await this.collectionExists(collectionName))) return 0;
+
+    const must: Array<Record<string, unknown>> = [
+      { key: "kind", match: { value: kind } },
+    ];
+    if (documentId) {
+      must.push({ key: "documentId", match: { value: documentId } });
+    }
+
+    const result = await this.client.count(collectionName, {
+      filter: { must },
+      exact: true,
+    });
+    return result.count;
+  }
+
   private async buildVectors(text: string) {
     const dense = await this.embeddings.embedQuery(text);
     return { [DENSE_NAME]: dense, [SPARSE_NAME]: sparseVector(text) };
