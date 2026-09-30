@@ -5,8 +5,13 @@
   display: grid;
   grid-template-columns: 220px 1fr 260px;
   grid-template-rows: 48px 1fr;
+  /* The shell owns exactly one viewport and never grows past it. The previous
+     `min-height: 560px` was larger than short viewports, so the page itself
+     scrolled and the composer fell below the fold on a laptop with browser
+     chrome open. `dvh` tracks mobile URL bars; the `vh` line stays as the
+     fallback for browsers without it. */
   height: 100vh;
-  min-height: 560px;
+  height: 100dvh;
   overflow: hidden;
   --r: rgb(203, 41, 87);
   --rd: rgba(203, 41, 87, 0.14);
@@ -468,6 +473,12 @@
   flex-direction: column;
   background: #000;
   min-width: 0;
+  /* This is a grid item of .wrap. Grid items default to `min-height: auto`,
+     which refuses to shrink below their content, so the column grew with the
+     transcript and pushed the composer past the bottom of the 1fr row, where
+     .wrap's `overflow: hidden` silently clipped it. */
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--g2);
 }
 
@@ -533,7 +544,13 @@
 /* MESSAGES */
 .msgs {
   flex: 1;
+  /* Required for `overflow-y: auto` to actually scroll. As a flex item the
+     default `min-height: auto` makes this box as tall as its messages instead
+     of the height left over in the column, so a long chat grew the list rather
+     than scrolling it and shoved the composer out of view. */
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1rem;
   display: flex;
   flex-direction: column;

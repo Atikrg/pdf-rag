@@ -157,7 +157,25 @@ export function usePdfChat(): UsePdfChatReturn {
         qcount: 0,
         cites: [],
       }));
-      setConversations(convs);
+
+      // `loadSession` runs concurrently on mount to restore the active
+      // transcript, and the list endpoint deliberately returns no messages.
+      // Whichever request lands last used to win, so a slow session list
+      // silently wiped a transcript that had just been restored and the chat
+      // came back empty after a refresh. Keep any transcript already in state.
+      setConversations((prev) => {
+        const loaded = new Map(prev.map((c) => [c.id, c]));
+        return convs.map((c) => {
+          const existing = loaded.get(c.id);
+          if (!existing || existing.messages.length === 0) return c;
+          return {
+            ...c,
+            messages: existing.messages,
+            cites: existing.cites,
+            qcount: existing.qcount,
+          };
+        });
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load your data");
     }
@@ -403,8 +421,9 @@ export function usePdfChat(): UsePdfChatReturn {
       setConversations((prev) => prev.filter((c) => c.id !== id));
       // Deleting the open conversation drops back to no selection rather than
       // leaving the workspace pointing at a session that no longer exists.
+      // Messages live inside `conversations`, so clearing `activeId` is what
+      // empties the transcript; `activeConversation` is derived from it.
       setActiveId((prev) => (prev === id ? null : prev));
-      setMessages([]);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to delete conversation",
