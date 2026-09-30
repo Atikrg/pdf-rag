@@ -380,6 +380,25 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await apiFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
 }
 
+/**
+ * Renames a session. Returns the title the backend actually stored rather than
+ * trusting the local value, so the sidebar reflects what was persisted.
+ */
+export async function renameSession(
+  sessionId: string,
+  title: string,
+): Promise<string> {
+  const data = await apiFetch<{ success: boolean; title: string }>(
+    `/api/sessions/${sessionId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    },
+  );
+  return data.title;
+}
+
 export async function getSummary(documentId: string): Promise<string> {
   const data = await apiFetch<{ success: boolean; summary: string }>(
     `/api/documents/${documentId}/summary`,

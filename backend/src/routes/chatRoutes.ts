@@ -22,6 +22,11 @@ export class ChatRoutes implements IRoutes {
       authenticateJWT,
       this.chatController.getSession,
     );
+    router.patch(
+      "/sessions/:id",
+      authenticateJWT,
+      this.chatController.renameSession,
+    );
     router.delete(
       "/sessions/:id",
       authenticateJWT,

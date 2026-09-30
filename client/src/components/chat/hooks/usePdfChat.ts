@@ -10,6 +10,7 @@ import {
   getSession,
   createSession,
   deleteSession as apiDeleteSession,
+  renameSession as apiRenameSession,
   getSummary,
   getToken,
   type JobStatus,
@@ -54,6 +55,8 @@ export type UsePdfChatReturn = {
   openDocConversation: (record: DocRecord) => void;
   newChat: () => void;
   clearConversation: () => void;
+  deleteConversation: (id: string) => Promise<void>;
+  renameConversation: (id: string, title: string) => Promise<boolean>;
   sendMessage: (promptOverride?: string) => void;
   refreshSummary: () => Promise<void>;
 };
@@ -389,6 +392,58 @@ export function usePdfChat(): UsePdfChatReturn {
     })();
   };
 
+  /**
+   * Deletes any conversation in the Recent list, not just the active one. The
+   * row is removed only after the server confirms, so a failed delete leaves
+   * the sidebar honest instead of showing a session that still exists.
+   */
+  const deleteConversation = useCallback(async (id: string) => {
+    try {
+      await apiDeleteSession(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      // Deleting the open conversation drops back to no selection rather than
+      // leaving the workspace pointing at a session that no longer exists.
+      setActiveId((prev) => (prev === id ? null : prev));
+      setMessages([]);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to delete conversation",
+      );
+    }
+  }, []);
+
+  /**
+   * Renames a conversation, applying the change optimistically and rolling back
+   * to the previous title if the server rejects it, so the sidebar never keeps
+   * a title that was not persisted.
+   */
+  const renameConversation = useCallback(
+    async (id: string, title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed) return false;
+
+      const previous = conversations.find((c) => c.id === id)?.title ?? "";
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title: trimmed } : c)),
+      );
+
+      try {
+        const saved = await apiRenameSession(id, trimmed);
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: saved } : c)),
+        );
+        return true;
+      } catch (err) {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, title: previous } : c)),
+        );
+        setError(err instanceof Error ? err.message : "Failed to rename chat");
+        return false;
+      }
+    },
+    [conversations],
+  );
+
   const sendMessage = async (promptOverride?: string) => {
     const prompt = (promptOverride ?? input).trim();
     if (!activeDocId || !prompt || sending) return;
@@ -597,6 +652,8 @@ export function usePdfChat(): UsePdfChatReturn {
     openDocConversation,
     newChat,
     clearConversation,
+    deleteConversation,
+    renameConversation,
     sendMessage,
     refreshSummary,
   };

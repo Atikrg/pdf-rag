@@ -4,7 +4,7 @@ import type { QdrantService } from "../services/qdrant.service";
 import type { OpenAiService } from "../services/openai.service";
 import type { ChatService } from "../services/chat.service";
 import { llmResponsePrompt } from "../services/prompts.service";
-import { chatStreamSchema } from "../types/zodSchema";
+import { chatStreamSchema, renameSessionSchema } from "../types/zodSchema";
 
 /**
  * Transport-agnostic event sink. The chat turn emits the same `delta` /
@@ -81,6 +81,43 @@ export class ChatController {
       return response.status(500).json({
         success: "fail",
         message: "Failed to fetch session",
+      });
+    }
+  };
+
+  public renameSession = async (request: Request, response: Response) => {
+    const userId = request.userId;
+    if (!userId) return response.status(401).json({ message: "Unauthorized" });
+
+    try {
+      const parsed = renameSessionSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return response.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid title",
+        });
+      }
+
+      const updated = await this.chatService.renameSession(
+        userId,
+        String(request.params.id),
+        parsed.data.title,
+      );
+
+      // 404 rather than 403 so this cannot confirm the existence of another
+      // user's session id.
+      if (!updated) {
+        return response.status(404).json({ message: "Session not found" });
+      }
+
+      return response.status(200).json({
+        success: true,
+        title: updated.title,
+      });
+    } catch (error: any) {
+      console.error("Failed to rename session:", error);
+      return response.status(500).json({
+        success: "fail",
+        message: "Failed to rename session",
       });
     }
   };

@@ -45,6 +45,8 @@ export default function ChatWorkspace() {
         percent={chat.percent}
         onNewChat={chat.newChat}
         onSelectConversation={chat.selectConversation}
+        onDeleteConversation={chat.deleteConversation}
+        onRenameConversation={chat.renameConversation}
         onOpenDoc={chat.openDocConversation}
         onFiles={chat.onFiles}
       />

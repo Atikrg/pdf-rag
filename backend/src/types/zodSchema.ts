@@ -31,6 +31,16 @@ export const resetPasswordSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
+export const renameSessionSchema = z.object({
+  // Trimmed to a printable length so a rename cannot inject newlines into the
+  // sidebar or store an unbounded blob per session.
+  title: z
+    .string()
+    .trim()
+    .min(1, "Title cannot be empty")
+    .max(120, "Title must be 120 characters or fewer"),
+});
+
 export const chatStreamSchema = z.object({
   sessionId: z.string().min(1).optional(),
   // Bounded because the prompt is concatenated with retrieved document context

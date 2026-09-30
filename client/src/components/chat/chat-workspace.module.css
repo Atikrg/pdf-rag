@@ -324,6 +324,67 @@
   margin-top: 1px;
 }
 
+/* Wraps the title/meta column so the row actions can sit at the far right. */
+.histBody {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Hidden until the row is hovered, so a long Recent list stays uncluttered. */
+.histActions {
+  display: flex;
+  gap: 0.125rem;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.histItem:hover .histActions,
+.histItem:focus-within .histActions {
+  opacity: 1;
+}
+
+.histActionBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--mt);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.histActionBtn:hover {
+  background: var(--g2);
+  color: var(--sv);
+}
+
+/* A destructive hover state, so delete never looks like rename. */
+.histActionBtn.danger:hover {
+  background: rgba(203, 41, 87, 0.2);
+  color: var(--r);
+}
+
+.histRenameInput {
+  width: 100%;
+  background: var(--g1);
+  border: 1px solid var(--rb);
+  border-radius: 5px;
+  padding: 2px 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ow);
+  outline: none;
+}
+
+.histRenameInput:focus {
+  border-color: var(--r);
+}
+
 .lsbDocs {
   padding: 0 0.5rem 0.5rem;
 }

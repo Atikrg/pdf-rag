@@ -77,6 +77,23 @@ export class ChatService {
     };
   }
 
+  /**
+   * Renames a session the caller owns. Scoped by userId so a guessed session id
+   * belonging to someone else finds nothing, exactly like deleteSession.
+   */
+  async renameSession(userId: string, sessionId: string, title: string) {
+    const session = await prisma.chatSession.findFirst({
+      where: { id: sessionId, userId },
+    });
+
+    if (!session) return null;
+
+    return prisma.chatSession.update({
+      where: { id: session.id },
+      data: { title },
+    });
+  }
+
   async deleteSession(userId: string, sessionId: string) {
     const session = await prisma.chatSession.findFirst({
       where: { id: sessionId, userId },
