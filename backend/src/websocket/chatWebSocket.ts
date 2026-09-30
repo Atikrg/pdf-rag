@@ -11,11 +11,26 @@ import { consumeRateLimit } from "../middleware/rateLimiter";
 
 export const CHAT_WS_PATH = "/ws";
 
+/**
+ * Chat turns are small JSON objects (`{sessionId?, documentId?, prompt}`), so
+ * anything approaching this is abuse. Bounds the frame a peer can make the
+ * server buffer in one message.
+ */
+const MAX_FRAME_BYTES = 64 * 1024;
+
+/**
+ * Frames buffered while authentication and rate limiting run. The protocol is
+ * one request frame per connection, so a handful is already generous; without a
+ * cap an unauthenticated peer could queue frames indefinitely before auth
+ * resolves.
+ */
+const MAX_INBOX_FRAMES = 4;
+
 type AttachOptions = {
   server: HttpServer;
   chatController: ChatController;
   redis: IORedis;
-  /** Origins permitted to open a socket. Empty/undefined allows any origin. */
+  /** Origins permitted to open a socket. Empty denies in production. */
   allowedOrigins?: string[];
 };
 
@@ -37,10 +52,30 @@ export function attachChatWebSocket({
   redis,
   allowedOrigins,
 }: AttachOptions): WebSocketServer {
-  const wss = new WebSocketServer({ server, path: CHAT_WS_PATH });
+  const wss = new WebSocketServer({
+    server,
+    path: CHAT_WS_PATH,
+    maxPayload: MAX_FRAME_BYTES,
+  });
+
+  // With no allowlist configured there is nothing to check against. Previously
+  // that meant "allow every origin" in every environment, so a misconfigured or
+  // unset ALLOWED_WS_ORIGINS silently disabled the one control preventing a
+  // third-party site from driving an authenticated socket via CSWSH. Production
+  // now fails closed; development keeps working but says so once at startup.
+  const noAllowlistAllowsAny = process.env.NODE_ENV !== "production";
+
+  if (!allowedOrigins?.length && noAllowlistAllowsAny) {
+    console.warn(
+      "ALLOWED_WS_ORIGINS is not set: the chat WebSocket will accept any origin. " +
+        "Set it to a comma-separated list before exposing this server.",
+    );
+  }
 
   const originAllowed = (origin: string | undefined) => {
-    if (!allowedOrigins || allowedOrigins.length === 0) return true;
+    if (!allowedOrigins || allowedOrigins.length === 0) {
+      return noAllowlistAllowsAny;
+    }
     if (!origin) return false;
     return allowedOrigins.includes(origin);
   };
@@ -51,8 +86,33 @@ export function attachChatWebSocket({
     // that message isn't dropped while we are still authenticating.
     const inbox: string[] = [];
     let wake: (() => void) | null = null;
+    let closed = false;
 
-    socket.on("message", (data: unknown) => {
+    socket.on("message", (data: unknown, isBinary: boolean) => {
+      // `maxPayload` on the WebSocketServer is the intended enforcement point,
+      // but it is NOT enforced under Bun: verified against ws 8.22, a 200KB frame
+      // is delivered to this handler intact where Node closes the socket with
+      // 1009. So the size is re-checked here explicitly, which is the check that
+      // actually holds on this runtime. Keep both — maxPayload still protects the
+      // Node/production path.
+      const size = isBinary
+        ? (data as Buffer).byteLength
+        : Buffer.byteLength(String(data));
+
+      if (size > MAX_FRAME_BYTES) {
+        closed = true;
+        socket.close(1009, "Frame too large");
+        return;
+      }
+
+      // Bounds how many frames can queue up before the turn is authenticated and
+      // consumed.
+      if (inbox.length >= MAX_INBOX_FRAMES) {
+        closed = true;
+        socket.close(1008, "Too many frames");
+        return;
+      }
+
       inbox.push(
         typeof data === "string"
           ? data
@@ -63,12 +123,24 @@ export function attachChatWebSocket({
       wake?.();
     });
 
+    // Release a reader parked in `takeMessage` when the peer disconnects or the
+    // frame budget is exceeded. Without this the await never settles, so every
+    // such connection would pin its handler, inbox, and socket until the process
+    // exits.
+    socket.on("close", () => {
+      closed = true;
+      wake?.();
+    });
+
     void handleConnection(
       socket,
       request.url ?? "",
       request.headers.origin,
       async () => {
         if (inbox.length > 0) return inbox.shift()!;
+
+        if (closed) return null;
+
         await new Promise<void>((resolve) => {
           wake = resolve;
         });
@@ -146,7 +218,9 @@ export function attachChatWebSocket({
       socket.close(1000);
     } catch (error: any) {
       console.error("WebSocket chat error:", error);
-      send("error", { message: error?.message ?? "Internal Server Error", code: 500 });
+      // Generic message: the socket peer is not entitled to internal detail, and
+      // this frame is rendered straight into the UI.
+      send("error", { message: "Internal Server Error", code: 500 });
       socket.close(1011);
     }
   }

@@ -22,7 +22,7 @@ export default function CitationsTab({ conversation }: Props) {
       ) : (
         conversation.cites.map((c, i) => (
           <div key={i} className={styles.citeItem}>
-            <div className={styles.ciPg}>Page {c.page}</div>
+            <div className={styles.ciPg}>{c.label}</div>
             <div className={styles.ciTxt}>{c.snippet}</div>
           </div>
         ))

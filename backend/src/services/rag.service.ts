@@ -56,9 +56,24 @@ export class RagService {
         }),
     );
 
+    // Paper-friendly splitter. Splitting on headings and paragraph breaks first
+    // keeps sections intact, then drops down to sentences. ~350 tokens keeps
+    // chunks far below the embedding model's 256-token context limit so the
+    // dense vectors stay faithful, while the overlap preserves continuity
+    // across split boundaries.
     const splitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000,
+      chunkSize: 1400, // ~350 tokens for this tokenizer
       chunkOverlap: 200,
+      separators: [
+        "\n\n## ",
+        "\n\n# ",
+        "\n\n### ",
+        "\n\n",
+        "\n",
+        ". ",
+        " ",
+        "",
+      ],
     });
 
     const chunks = await splitter.splitDocuments(docs);

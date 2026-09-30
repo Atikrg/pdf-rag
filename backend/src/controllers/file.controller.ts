@@ -94,7 +94,6 @@ export class FileController {
         success: "fail",
         fileName: request.file?.originalname,
         message: "File upload failed.",
-        error: error.message,
       });
     }
   };
@@ -119,7 +118,6 @@ export class FileController {
       return response.status(500).json({
         success: "fail",
         message: "Failed to fetch documents.",
-        error: error.message,
       });
     }
   };
@@ -155,13 +153,18 @@ export class FileController {
       return response.status(500).json({
         success: "fail",
         message: "Failed to stream document.",
-        error: error.message,
       });
     }
   };
 
   public status = async (request: Request, response: Response) => {
     try {
+      const userId = request.userId;
+
+      if (!userId) {
+        return response.status(401).json({ message: "Unauthorized" });
+      }
+
       const { jobId } = request.params;
 
       if (!jobId || typeof jobId !== "string") {
@@ -170,7 +173,9 @@ export class FileController {
         });
       }
 
-      const status = await this.pdfQueue.getStatus(jobId);
+      // Scoped to the caller: job ids are sequential, so an unscoped lookup
+      // would let any authenticated user read another user's upload progress.
+      const status = await this.pdfQueue.getStatus(jobId, userId);
 
       if (!status) {
         return response.status(404).json({
@@ -185,7 +190,6 @@ export class FileController {
       return response.status(500).json({
         success: "fail",
         message: "Failed to fetch job status.",
-        error: error.message,
       });
     }
   };
@@ -225,7 +229,6 @@ export class FileController {
       return response.status(500).json({
         success: "fail",
         message: "Failed to delete document.",
-        error: error.message,
       });
     }
   };
@@ -278,7 +281,6 @@ export class FileController {
       return response.status(500).json({
         success: "fail",
         message: "Failed to summarize document.",
-        error: error.message,
       });
     }
   };

@@ -25,9 +25,15 @@ export function historyIcon(docName: string): IconName {
 }
 
 export function citationLabel(citation: Citation): string | null {
-  const page =
+  const labelPart =
     citation.pageIndex != null
       ? `p. ${citation.pageIndex}`
+      : citation.sheetName != null
+      ? `${citation.sheetName}:${citation.rowIndex}`
+      : citation.paragraphIndex != null
+      ? `Para ${citation.paragraphIndex}`
+      : citation.sectionIndex != null
+      ? `Sec ${citation.sectionIndex}`
       : null;
   const range =
     citation.lines != null &&
@@ -35,7 +41,7 @@ export function citationLabel(citation: Citation): string | null {
     citation.lines.to != null
       ? `${citation.lines.from}–${citation.lines.to}`
       : null;
-  const label = [page, range].filter(Boolean).join(" · ");
+  const label = [labelPart, range].filter(Boolean).join(" · ");
   return label || null;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Icon from "../Icon";
 import { getToken } from "@/lib/api";
@@ -26,6 +26,18 @@ function initials(user: User | null): string {
 export default function TopNav({ docName, docId, onNewChat, user, authenticated, onLogout }: Props) {
   const [open, setOpen] = useState(false);
   const [opening, setOpening] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
 
   const name =
     user && (user.firstName || user.lastName)
@@ -74,7 +86,7 @@ export default function TopNav({ docName, docId, onNewChat, user, authenticated,
           New chat
         </button>
         {authenticated ? (
-          <div className={styles.profileWrap}>
+          <div className={styles.profileWrap} ref={wrapRef}>
             <button
               className={styles.uav}
               title="Account"

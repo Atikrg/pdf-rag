@@ -142,6 +142,20 @@ export function clearAuth(): void {
   setStoredUser(null);
 }
 
+/**
+ * Error carrying the HTTP status, so callers can branch on 404/401/429 rather
+ * than string-matching a human-readable message.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(init.headers);
@@ -170,7 +184,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
       (typeof body.message === "string" ? body.message : undefined) ??
       (typeof body.error === "string" ? body.error : undefined) ??
       `Request failed (${res.status})`;
-    throw new Error(message);
+    throw new ApiError(message, res.status);
   }
 
   return data as T;
@@ -281,7 +295,10 @@ export async function getJobStatus(jobId: string): Promise<JobStatus | null> {
   try {
     return await apiFetch<JobStatus>(`/api/upload/status/${jobId}`);
   } catch (err) {
-    if (err instanceof Error && err.message.includes("404")) return null;
+    // A 404 covers both "no such job" and "not yours": the server collapses the
+    // two on purpose so this endpoint can't be used to probe which ids exist.
+    // Polling treats it as "nothing to show yet" rather than a failure.
+    if (err instanceof ApiError && err.status === 404) return null;
     throw err;
   }
 }

@@ -58,6 +58,11 @@ export function rateLimit(redis: IORedis, options: RateLimitOptions) {
   const { message = "Too many requests, please try again later." } = options;
 
   return async (request: Request, response: Response, next: NextFunction) => {
+    // `request.ip` is only the real client address when the app trusts the
+    // proxy in front of it. Behind Docker/nginx every request otherwise arrives
+    // from the same gateway IP, which collapses the whole limit into one shared
+    // bucket for all users. `app.set("trust proxy", ...)` in container.ts keeps
+    // this correct.
     const identifier = request.userId
       ? `user:${request.userId}`
       : `ip:${request.ip ?? request.socket.remoteAddress ?? "unknown"}`;
@@ -68,6 +73,9 @@ export function rateLimit(redis: IORedis, options: RateLimitOptions) {
     response.setHeader("X-RateLimit-Remaining", String(result.remaining));
 
     if (!result.allowed) {
+      // Tell the caller how long to back off, so clients and proxies can pace
+      // themselves instead of hammering a known-rejected endpoint.
+      response.setHeader("Retry-After", String(Math.ceil(options.windowMs / 1000)));
       return response.status(429).json({ success: "fail", message });
     }
 

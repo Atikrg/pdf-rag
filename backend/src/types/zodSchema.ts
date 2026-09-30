@@ -20,9 +20,13 @@ export const loginSchema = z.object({
 
 export const chatStreamSchema = z.object({
   sessionId: z.string().min(1).optional(),
-  prompt: z.string().trim().min(1, "Prompt is required"),
+  // Bounded because the prompt is concatenated with retrieved document context
+  // and forwarded to the model on every turn; an unbounded string lets one
+  // message drive an arbitrarily large request (and bill).
+  prompt: z.string().trim().min(1).max(8000, "Prompt is too long"),
   documentId: z.string().min(1).optional(),
 });
+
 
 export const createSessionSchema = z.object({
   documentId: z.string().min(1).optional(),

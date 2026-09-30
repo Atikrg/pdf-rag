@@ -10,8 +10,10 @@ services:
     restart: unless-stopped
 
     ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC API
+      # Bound to loopback: Qdrant ships with no auth, so a published port here
+      # is an unauthenticated read/write dump of every user's document vectors.
+      - "127.0.0.1:6333:6333"   # REST API
+      - "127.0.0.1:6334:6334"   # gRPC API
 
     volumes:
       - ./qdrant_storage:/qdrant/storage
@@ -138,7 +140,11 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
     ports:
-      - 9090:9000
+      # Loopback only: 9000 speaks S3 with the default `miniosecret` root
+      # credential, so exposing it grants full read/write/delete on the bucket.
+      # 9090 stays host-reachable because it backs the browser-facing
+      # BATCH_EXPORT_EXTERNAL_ENDPOINT the web app hands to the browser.
+      - "127.0.0.1:9090:9000"
       - 127.0.0.1:9091:9001
     volumes:
       - langfuse_minio_data:/data
@@ -229,6 +235,10 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
       REDIS_URL: redis://:${REDIS_AUTH:-myredissecret}@redis:6379
+      # Pinned off even if backend/.env opts in for local `bun run dev`:
+      # `environment` wins over `env_file`, so the Docker stack never serves
+      # unauthenticated requests as a shared dev-user.
+      ALLOW_DEV_AUTH: "false"
     ports:
       - "5000:5000"
     command: sh -c "bun run dev"
@@ -258,6 +268,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
       REDIS_URL: redis://:${REDIS_AUTH:-myredissecret}@redis:6379
+      ALLOW_DEV_AUTH: "false"
     command: sh -c "bun run worker:enrich"
     volumes:
       - ./backend/src:/app/src
@@ -282,6 +293,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minio}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret} # CHANGEME
       REDIS_URL: redis://:${REDIS_AUTH:-myredissecret}@redis:6379
+      ALLOW_DEV_AUTH: "false"
     command: sh -c "bun run worker"
     volumes:
       - ./backend/src:/app/src
@@ -307,6 +319,8 @@ services:
       NEXT_TELEMETRY_DISABLED: "1"
       WATCHPACK_POLLING: "true"
     ports:
+      # Container port must match client/Dockerfile.dev, which serves Next.js
+      # with `-p 3000`. Pointing this at any other port leaves nothing listening.
       - "3001:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -31,10 +31,20 @@ export class BullMqPdfQueue implements IPdfProcessingQueue {
     return job.id ?? "";
   }
 
-  public async getStatus(jobId: string): Promise<PdfJobStatus | null> {
+  public async getStatus(
+    jobId: string,
+    ownerId: string,
+  ): Promise<PdfJobStatus | null> {
     const job = await this.getQueue().getJob(jobId);
 
     if (!job) {
+      return null;
+    }
+
+    // Authorisation belongs here rather than in the controller: this is the only
+    // place that can see the job's own payload. `StoredFileMeta.userId` is set
+    // when the upload is accepted and never mutated afterwards.
+    if (job.data.userId !== ownerId) {
       return null;
     }
 

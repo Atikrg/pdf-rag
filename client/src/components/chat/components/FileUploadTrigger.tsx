@@ -42,7 +42,7 @@ export default function FileUploadTrigger({ className, onFiles, children }: Prop
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept=".pdf,application/pdf,.xls,.xlsx,.csv,.docx,.md,.txt"
         className={styles.hiddenInput}
         onChange={(e) => {
           onFiles(e.target.files);

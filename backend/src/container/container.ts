@@ -30,6 +30,28 @@ import { ChatRoutes } from "../routes/chatRoutes";
 import { MetaRoutes } from "../routes/meta.routes";
 import { AuthRoutes } from "../routes/auth.routes";
 
+/**
+ * Normalises the TRUST_PROXY env var into a value `app.set("trust proxy")`
+ * understands.
+ *
+ * Express distinguishes a *number* (hop count) from a *string* (comma-separated
+ * IP addresses, subnets, or names like "loopback"). Env vars are always strings,
+ * so passing `process.env.TRUST_PROXY` through untouched would make "1" mean a
+ * network named "1" instead of one hop. Anything else is passed through so
+ * subnet/CIDR lists still work.
+ */
+function parseTrustProxy(value: string | undefined): boolean | number | string {
+  const raw = (value ?? "1").trim().toLowerCase();
+
+  if (raw === "false" || raw === "off" || raw === "0") return false;
+  if (raw === "true" || raw === "on") return true;
+
+  const hops = Number(raw);
+  if (Number.isInteger(hops) && hops >= 0) return hops;
+
+  return raw;
+}
+
 export class Container {
   private static instance: Container;
 
@@ -216,8 +238,12 @@ export class Container {
   public get routeRegistrars(): IRoutes[] {
     if (!this.routeRegistrarsCache) {
       this.routeRegistrarsCache = [
-        new AuthRoutes(this.authController),
-        new UploadRoutes(this.fileController, this.fileStorage),
+        new AuthRoutes(this.authController, this.getRedisConnection()),
+        new UploadRoutes(
+          this.fileController,
+          this.fileStorage,
+          this.getRedisConnection(),
+        ),
         new ChatRoutes(this.chatController),
         new MetaRoutes(this.metaController),
       ];
@@ -233,7 +259,15 @@ export class Container {
       app.use(morgan("dev"));
     }
 
-    app.use(express.json());
+    // Trust exactly one proxy hop (the Docker bridge / reverse proxy in front of
+    // this container) so `request.ip` is the real client address. The rate
+    // limiter keys unauthenticated routes on that IP, and without this every
+    // request would appear to come from the same gateway and share one bucket.
+    // Set TRUST_PROXY=false when running with no proxy at all, so a client can't
+    // forge its own address via `X-Forwarded-For`.
+    app.set("trust proxy", parseTrustProxy(process.env.TRUST_PROXY));
+
+    app.use(express.json({ limit: "1mb" }));
     app.use(cookieParser());
 
     for (const registrar of this.routeRegistrars) {

@@ -1,6 +1,40 @@
 export class AppConfig {
   private static instance: AppConfig;
 
+  /**
+   * Minimum length for `JWT_SECRET`. Anything shorter makes tokens forgeable by
+   * brute force, and the historical default in `backend/.env` was a 16-char
+   * placeholder that shipped with the template. Signing and verifying both use
+   * this value, so a weak secret is a full account-takeover primitive: anyone
+   * can mint a token for an arbitrary `userId`.
+   */
+  private static readonly MIN_JWT_SECRET_LENGTH = 32;
+
+  /**
+   * Rejects a missing or weak JWT secret before the server starts listening.
+   * Failing here is deliberate: `jsonwebtoken` accepts any string, so an empty
+   * secret silently degrades to "tokens signed with an empty key" rather than
+   * erroring, which is how a forgeable deployment looks healthy.
+   */
+  private static assertUsableJwtSecret(secret: string): string {
+    if (!secret) {
+      throw new Error(
+        "JWT_SECRET is not set. Generate one with `openssl rand -hex 32` and " +
+          "add it to backend/.env.",
+      );
+    }
+
+    if (secret.length < AppConfig.MIN_JWT_SECRET_LENGTH) {
+      throw new Error(
+        `JWT_SECRET is too short (${secret.length} chars; ` +
+          `${AppConfig.MIN_JWT_SECRET_LENGTH} required). Generate one with ` +
+          "`openssl rand -hex 32` and replace it in backend/.env.",
+      );
+    }
+
+    return secret;
+  }
+
   private constructor(
     public readonly serverPort: string,
     public readonly jwtSecret: string,
@@ -28,13 +62,22 @@ export class AppConfig {
     public readonly googleClientId: string,
     public readonly googleClientSecret: string,
     public readonly googleRedirectUri: string,
+    /**
+     * Opt-in switch for the implicit dev identity. Must be set explicitly:
+     * inferring it from `NODE_ENV` meant every `docker compose up` run served
+     * requests as a single shared "dev-user" with no credentials, because the
+     * backend container sets `NODE_ENV=development`.
+     */
+    public readonly allowDevAuth: boolean,
+    /** Hard ceiling for a single upload, enforced by multer before buffering completes. */
+    public readonly maxUploadBytes: number,
   ) {}
 
   public static getInstance(): AppConfig {
     if (!AppConfig.instance) {
       AppConfig.instance = new AppConfig(
         process.env.SERVER_PORT ?? "5000",
-        process.env.JWT_SECRET ?? "",
+        AppConfig.assertUsableJwtSecret(process.env.JWT_SECRET ?? ""),
         process.env.MINIO_ENDPOINT ?? "minio",
         Number(process.env.MINIO_PORT ?? 9000),
         process.env.MINIO_USE_SSL === "true",
@@ -70,6 +113,13 @@ export class AppConfig {
         process.env.GOOGLE_CLIENT_ID ?? "",
         process.env.GOOGLE_CLIENT_SECRET ?? "",
         process.env.GOOGLE_REDIRECT_URI ?? "",
+        // Deliberately NOT derived from NODE_ENV. The compose backend service
+        // runs with NODE_ENV=development, so any NODE_ENV-based default would
+        // re-open the unauthenticated dev-user path in Docker. Opt in only.
+        process.env.ALLOW_DEV_AUTH === "true",
+        // Uploads are buffered fully in memory before being written to MinIO, so
+        // this doubles as the ceiling on a single request's heap usage.
+        Number(process.env.MAX_UPLOAD_BYTES ?? 25 * 1024 * 1024),
       );
     }
 

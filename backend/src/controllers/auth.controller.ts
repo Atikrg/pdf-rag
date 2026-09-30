@@ -29,7 +29,10 @@ export class AuthController {
     response.cookie("google_oauth_state", state, {
       httpOnly: true,
       sameSite: "lax",
-      secure: false,
+      secure: request.protocol === "https",
+      // State is single-use and only needed during the redirect round-trip; 5
+      // minutes is more than enough for the OAuth provider to return a code.
+      maxAge: 5 * 60 * 1000,
     });
 
     const params = new URLSearchParams({
@@ -67,6 +70,11 @@ export class AuthController {
       return response.status(400).json({ message: "Missing authorization code" });
     }
     if (!state || !savedState || state !== savedState) {
+      response.clearCookie("google_oauth_state", {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: request.protocol === "https",
+      });
       return response.status(400).json({ message: "Invalid OAuth state" });
     }
 
@@ -118,6 +126,11 @@ export class AuthController {
       const userPayload = encodeURIComponent(
         JSON.stringify(this.safeUser(user)),
       );
+      response.clearCookie("google_oauth_state", {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: request.protocol === "https",
+      });
       return response.redirect(
         `${origin}/login?token=${encodeURIComponent(token)}&user=${userPayload}`,
       );

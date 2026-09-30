@@ -3,3 +3,23 @@ qdrant_storage/
 
 # Scratch / standalone HTML export
 pdf_chat_full_page.html
+
+# Dependencies
+node_modules/
+
+# Secrets. Real .env files must never be committed; commit a redacted
+# .env.example instead.
+.env
+.env.*
+!.env.example
+client_secret_*.json
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/

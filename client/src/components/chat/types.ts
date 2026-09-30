@@ -10,7 +10,7 @@ export type Message = {
 };
 
 export type CiteItem = {
-  page: number;
+  label: string;
   snippet: string;
 };
 

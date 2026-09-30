@@ -70,12 +70,22 @@ function toDocRecord(d: DocumentRecord): DocRecord {
 
 function citationsFromMessage(m: { citations?: Citation[] | null }): CiteItem[] {
   if (!m.citations) return [];
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   const items: CiteItem[] = [];
   for (const c of m.citations) {
-    if (c.pageIndex == null || seen.has(c.pageIndex)) continue;
-    seen.add(c.pageIndex);
-    items.push({ page: c.pageIndex, snippet: buildCitationSnippet(c, "") });
+    const key = c.pageIndex != null
+      ? `Page ${c.pageIndex}`
+      : c.sheetName != null
+      ? `${c.sheetName}:${c.rowIndex}`
+      : c.paragraphIndex != null
+      ? `Para ${c.paragraphIndex}`
+      : c.sectionIndex != null
+      ? `Sec ${c.sectionIndex}`
+      : null;
+
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    items.push({ label: key, snippet: buildCitationSnippet(c, "") });
   }
   return items;
 }
@@ -318,8 +328,20 @@ export function usePdfChat(): UsePdfChatReturn {
       return;
     }
 
-    if (selected && selected.type === "application/pdf") {
+    const allowedMimeTypes = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+      "text/csv",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "text/markdown",
+      "text/plain",
+    ];
+
+    if (selected && allowedMimeTypes.includes(selected.type)) {
       startUpload(selected);
+    } else if (selected) {
+      setError("File type not supported. Please upload a PDF, Excel, CSV, Word, Markdown, or Text file.");
     }
   };
 
@@ -537,10 +559,10 @@ export function usePdfChat(): UsePdfChatReturn {
   const systemText = uploading
     ? uploadingFile
       ? `Indexing ${uploadingFile.name} — ${Math.round(percent)}%…`
-      : "Uploading your PDF…"
+      : "Uploading your document…"
     : activeDocument
       ? `${activeDocument.name} is ready — ${activeDocument.pages} pages indexed. Ask anything about the document and I'll reference exact pages in my answers.`
-      : "Drop a PDF to start chatting. DocuMind will index it and answer with exact page references.";
+      : "Drop a document to start chatting. DocuMind will index it and answer with exact page references.";
 
   const inputHint = sending
     ? "DocuMind is thinking…"

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { AppConfig } from "../config/AppConfig";
 import { verifyToken } from "../utils/jwt";
 import { verifyClerkToken, getClerkUser } from "../lib/clerk";
 import { UserService } from "../services/user.service";
@@ -52,9 +53,15 @@ export async function authenticateToken(
 
 /**
  * Development fallback used when no auth is configured at all.
+ *
+ * Requires `ALLOW_DEV_AUTH=true` explicitly. It used to be implied by
+ * `NODE_ENV=development`, which meant the Docker backend — published on port
+ * 5000 and run with exactly that value — answered every unauthenticated request
+ * as one shared "dev-user", so all users shared one document quota and could
+ * read each other's uploads.
  */
 export async function developmentIdentity(): Promise<AuthenticatedIdentity | null> {
-  if (process.env.NODE_ENV !== "development" || process.env.CLERK_SECRET_KEY) {
+  if (!AppConfig.getInstance().allowDevAuth || process.env.CLERK_SECRET_KEY) {
     return null;
   }
 

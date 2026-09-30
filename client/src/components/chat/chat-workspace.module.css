@@ -1051,6 +1051,21 @@
 .ptl.ptlS { width: 75%; }
 .ptl.ptlXs { width: 45%; }
 
+.pageCanvasWrap {
+  background: #fff;
+  border: 1px solid var(--g3);
+  border-radius: 4px;
+  overflow: hidden;
+  line-height: 0;
+  min-height: 150px;
+}
+
+.pageCanvas {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
 /* CITATIONS tab */
 .citesHint {
   font-size: 0.78rem;

@@ -37,10 +37,10 @@ export class ChatController {
 
       return response.status(201).json({ success: true, session });
     } catch (error: any) {
+      console.error("Failed to create session:", error);
       return response.status(500).json({
         success: "fail",
         message: "Failed to create session",
-        error: error.message,
       });
     }
   };
@@ -53,10 +53,10 @@ export class ChatController {
       const sessions = await this.chatService.listSessions(userId);
       return response.status(200).json({ success: true, sessions });
     } catch (error: any) {
+      console.error("Failed to fetch sessions:", error);
       return response.status(500).json({
         success: "fail",
         message: "Failed to fetch sessions",
-        error: error.message,
       });
     }
   };
@@ -77,10 +77,10 @@ export class ChatController {
 
       return response.status(200).json({ success: true, session });
     } catch (error: any) {
+      console.error("Failed to fetch session:", error);
       return response.status(500).json({
         success: "fail",
         message: "Failed to fetch session",
-        error: error.message,
       });
     }
   };
@@ -101,10 +101,10 @@ export class ChatController {
 
       return response.status(200).json({ success: true });
     } catch (error: any) {
+      console.error("Failed to delete session:", error);
       return response.status(500).json({
         success: "fail",
         message: "Failed to delete session",
-        error: error.message,
       });
     }
   };
