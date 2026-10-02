@@ -336,9 +336,11 @@ export class QdrantService {
    * Runs a real hybrid search: a dense semantic query plus a sparse/keyword
    * query, merged with Reciprocal Rank Fusion. Returns up to `topK` results.
    *
-   * Each result also carries `score`, the raw dense cosine similarity. RRF is a
-   * rank-fusion score and is not comparable across queries, so the caller uses
-   * `score` as the relevance signal for deciding whether to answer at all.
+   * Each result also carries `score`, the raw dense cosine similarity, for
+   * debugging and diagnostics. RRF is a rank-fusion score and is not comparable
+   * across queries, so ordering is driven by RRF only; `score` is never used to
+   * decide whether to answer, because cosine against a fixed floor is not a
+   * reliable relevance test for a given question.
    */
   async hybridSearch(
     question: string,
@@ -387,8 +389,8 @@ export class QdrantService {
       { rrf: number; score: number; payload: Record<string, any> }
     >();
 
-    // Dense leg: records the RRF contribution and the only trustworthy
-    // relevance number, the cosine similarity.
+    // Dense leg: records the RRF contribution plus the raw cosine, kept on the
+    // result for diagnostics only.
     denseRes.points.forEach((point, i) => {
       const id = String(point.id);
       const prev = scores.get(id);
@@ -401,16 +403,15 @@ export class QdrantService {
     });
 
     // Sparse leg: contributes rank only. Its `score` is a sparse dot product,
-    // not a cosine, so it is deliberately discarded — mixing the two made
-    // results exceed 1.0 and rendered the relevance threshold meaningless.
+    // not a cosine, so it is deliberately discarded — mixing the two produced
+    // values above 1.0 and made the number meaningless.
     sparseRes.points.forEach((point, i) => {
       const id = String(point.id);
       const prev = scores.get(id);
 
       scores.set(id, {
         rrf: (prev?.rrf ?? 0) + 1 / (60 + i + 1),
-        // A point only the sparse leg found has no dense evidence at all, so it
-        // scores 0 and the caller treats it as unverified.
+        // A point only the sparse leg found has no dense vector, so it carries 0.
         score: prev?.score ?? 0,
         payload: (point.payload ?? {}) as Record<string, any>,
       });
@@ -439,14 +440,6 @@ export class QdrantService {
           score: Number.isFinite(value.score) ? value.score : 0,
         };
       });
-  }
-
-  /**
-   * True when a result carries enough dense evidence to answer from. Results
-   * that only the sparse leg found score 0 and fail this.
-   */
-  static isRelevant(score: number, threshold: number): boolean {
-    return Number.isFinite(score) && score >= threshold;
   }
 
   /**

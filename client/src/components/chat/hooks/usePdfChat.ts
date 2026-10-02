@@ -46,6 +46,7 @@ export type UsePdfChatReturn = {
   inputHint: string;
   summary: string | null;
   authenticated: boolean;
+  mounted: boolean;
   user: import("@/lib/api").User | null;
   logout: () => void;
   setInput: (value: string) => void;
@@ -109,7 +110,7 @@ function incrementGuestChatCount(): number {
 }
 
 export function usePdfChat(): UsePdfChatReturn {
-  const { authenticated, user, logout } = useAuth();
+  const { authenticated, mounted, user, logout } = useAuth();
 
   const [docList, setDocList] = useState<DocRecord[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -662,6 +663,7 @@ export function usePdfChat(): UsePdfChatReturn {
     inputHint,
     summary,
     authenticated,
+    mounted,
     user,
     logout,
     setInput,

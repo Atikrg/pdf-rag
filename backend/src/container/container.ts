@@ -5,6 +5,7 @@ import IORedis from "ioredis";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { AppConfig } from "../config/AppConfig";
 import { MinioFileStorage } from "../infrastructure/MinioFileStorage";
+import { TesseractOcrEngine } from "../infrastructure/TesseractOcrEngine";
 import { BullMqPdfQueue } from "../infrastructure/BullMqPdfQueue";
 import { BullMqQuestionQueue } from "../infrastructure/BullMqQuestionQueue";
 import { RedisCache } from "../infrastructure/RedisCache";
@@ -122,7 +123,10 @@ export class Container {
 
   public get ragService(): RagService {
     if (!this.ragServiceInstance) {
-      this.ragServiceInstance = new RagService();
+      // Wired with the OCR engine so scanned PDFs are readable. The engine is
+      // an infrastructure adapter; RagService only knows the IOcrEngine port,
+      // so swapping in a hosted OCR provider touches this getter alone.
+      this.ragServiceInstance = new RagService(new TesseractOcrEngine());
     }
 
     return this.ragServiceInstance;

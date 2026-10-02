@@ -34,6 +34,7 @@ export default function ChatWorkspace() {
         onNewChat={chat.newChat}
         user={chat.user}
         authenticated={chat.authenticated}
+        mounted={chat.mounted}
         onLogout={handleLogout}
       />
 

@@ -15,6 +15,9 @@ import { generateQuestionsForChunks } from "./question.service";
 /** Reports 0-100 progress for the in-flight job. */
 export type ProgressReporter = (percent: number) => void;
 
+/** A document with less text than this has nothing worth indexing. */
+const MIN_INDEXABLE_CHARS = 200;
+
 export class DocumentProcessingPipeline {
   constructor(
     private readonly config: AppConfig,
@@ -48,8 +51,21 @@ export class DocumentProcessingPipeline {
     let totalPages = 0;
 
     if (meta.mimeType === "application/pdf") {
-      const docs = await this.ragService.loadPdfFromBuffer(fileBuffer);
-      const pages = await this.ragService.extractPdfPages(docs);
+      // extractPdfText falls back to OCR for scans, so this is the only place
+      // that needs to know about it. OCR progress occupies 20-40%, the same
+      // window the rasterisation used to.
+      const { pages, characterCount } = await this.ragService.extractPdfText(
+        fileBuffer,
+        (done, total) => report?.(20 + Math.round((done / total) * 20)),
+      );
+
+      if (characterCount < MIN_INDEXABLE_CHARS) {
+        throw new Error(
+          "No usable text could be read from this PDF. It may be a scan that " +
+            "needs OCR, or a file with no text layer.",
+        );
+      }
+
       const recursiveChunks = await this.ragService.recursiveChunking(pages);
 
       chunked = recursiveChunks.map((chunk) => ({

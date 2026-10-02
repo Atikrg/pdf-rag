@@ -13,6 +13,12 @@ type Props = {
   onNewChat: () => void;
   user: User | null;
   authenticated: boolean;
+  /**
+   * False until the client has mounted. `authenticated` and `user` come from
+   * localStorage and so differ between the server render and hydration; render
+   * the neutral placeholder until this is true rather than branching early.
+   */
+  mounted: boolean;
   onLogout: () => void;
 };
 
@@ -23,7 +29,7 @@ function initials(user: User | null): string {
   return (first + last || user.email?.[0] || "?").toUpperCase();
 }
 
-export default function TopNav({ docName, docId, onNewChat, user, authenticated, onLogout }: Props) {
+export default function TopNav({ docName, docId, onNewChat, user, authenticated, mounted, onLogout }: Props) {
   const [open, setOpen] = useState(false);
   const [opening, setOpening] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -85,7 +91,12 @@ export default function TopNav({ docName, docId, onNewChat, user, authenticated,
           <Icon name="plus" size={15} />
           New chat
         </button>
-        {authenticated ? (
+        {!mounted ? (
+          // Same footprint as the avatar so the row does not shift on mount.
+          <div className={styles.profileWrap} aria-hidden="true">
+            <div className={styles.uav} />
+          </div>
+        ) : authenticated ? (
           <div className={styles.profileWrap} ref={wrapRef}>
             <button
               className={styles.uav}

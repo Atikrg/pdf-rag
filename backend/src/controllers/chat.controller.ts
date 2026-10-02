@@ -252,19 +252,9 @@ export class ChatController {
 
       const topChunks = uniqueChunks.slice(0, 5);
 
-      // Relevance gate. Retrieval returning *something* is not evidence that it
-      // is relevant; without this check a near-zero match is handed to the model
-      // as context and it will answer from it confidently. Score the top hit
-      // against the configured floor and abstain below it.
-      const bestScore = topChunks.reduce(
-        (best, chunk) => Math.max(best, chunk.score ?? 0),
-        0,
-      );
-      const isRelevant = bestScore >= this.config.minRelevantScore;
-
       console.log(
-        `[chat] topScore=${bestScore.toFixed(3)} threshold=${this.config.minRelevantScore} ` +
-          `hits=${hybridSearch.length} relevant=${isRelevant}`,
+        `[chat] hits=${hybridSearch.length} unique=${uniqueChunks.length} ` +
+          `context=${topChunks.length}`,
       );
 
       const citations = [
@@ -306,21 +296,25 @@ export class ChatController {
       // persisted message both read this rather than the raw list.
       let verifiedCitations: typeof citations = citations;
 
-      if (topChunks.length === 0 || !isRelevant) {
-        const reason =
-          topChunks.length === 0
-            ? "no matching content"
-            : `best match scored ${bestScore.toFixed(2)}, below the ${this.config.minRelevantScore} relevance threshold`;
+      // Only guard the case where there is genuinely nothing to answer from.
+      // Retrieval always returns its top-k even for an unrelated query, so a
+      // low-scoring hit is still real document text and the model is better
+      // placed to judge it than a hard floor on cosine similarity — the floor
+      // rejected legitimate questions whose vocabulary differed from the
+      // document's ("which company" against a resume that never says
+      // "company"). An empty result means the document was never indexed.
+      if (topChunks.length === 0) {
+        const noContext =
+          "This document has no indexed content yet, so I can't answer from it. " +
+          "Wait for processing to finish, then try again.";
 
-        const abstention = `I couldn't find relevant content for that question in the document (${reason}). Try rephrasing or asking about the indexed pages.`;
+        sink.send("delta", { text: noContext });
 
-        sink.send("delta", { text: abstention });
-
-        // Persist the abstention so the stored transcript has no dangling
+        // Persist the reply so the stored transcript has no dangling
         // unanswered user turn.
-        await this.chatService.addMessage(sessionId, "ai", abstention, []);
+        await this.chatService.addMessage(sessionId, "ai", noContext, []);
 
-        console.log(`[chat] abstained: ${reason}`);
+        console.log("[chat] no indexed content for this document");
       } else {
         const { stream } =
           await this.openAiService.generateResponseStream(

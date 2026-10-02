@@ -54,7 +54,6 @@ export class AppConfig {
     public readonly clerkJwtPem: string,
     public readonly maxDocsPerUser: number,
     public readonly aiModel: string,
-    public readonly minRelevantScore: number,
     public readonly questionsPerChunk: number,
     public readonly chatMaxHistoryChars: number,
     /** Origins allowed to open the chat WebSocket. Empty means allow any. */
@@ -107,11 +106,6 @@ export class AppConfig {
         process.env.CLERK_JWT_PEM ?? "",
         Number(process.env.MAX_DOCS_PER_USER ?? 5),
         process.env.AI_MODEL ?? "openrouter/free",
-        // Minimum dense cosine similarity for a retrieved chunk to be treated as
-        // relevant enough to answer from. Below this the chat endpoint abstains
-        // instead of letting the model improvise. Calibrate against logged
-        // scores before raising it: too high causes false abstentions.
-        Number(process.env.MIN_RELEVANT_SCORE ?? 0.35),
         // Hypothetical questions generated per chunk during phase-2 enrichment.
         Number(process.env.QUESTIONS_PER_CHUNK ?? 6),
         // Character budget for the prior conversation sent with each request.
@@ -132,6 +126,9 @@ export class AppConfig {
         process.env.ALLOW_DEV_AUTH === "true",
         // Uploads are buffered fully in memory before being written to MinIO, so
         // this doubles as the ceiling on a single request's heap usage.
+        // Must stay below the client's MAX_PROXY_BODY_BYTES: if the proxy
+        // ceiling is lower it truncates the body first, and this limit's
+        // readable "File is too large" 400 never reaches the user.
         Number(process.env.MAX_UPLOAD_BYTES ?? 25 * 1024 * 1024),
         process.env.CLIENT_BASE_URL ?? "http://localhost:3001",
         process.env.DEV_PASSWORD_RESET === "true",
